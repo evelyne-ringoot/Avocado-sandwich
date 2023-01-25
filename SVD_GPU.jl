@@ -1,5 +1,6 @@
-using LinearAlgebra, Distributions, Random, StaticArrays, SparseArrays, Plots, StatsPlots, DelimitedFiles, Plots.Measures, CUDA, BenchmarkTools, CatViews
+using LinearAlgebra, Distributions, Random, StaticArrays, SparseArrays, Plots, StatsPlots, DelimitedFiles, Plots.Measures, CUDA, BenchmarkTools
 
+#copyto!
 
 struct BandBidiag_properties
     block_x_size::Int64 
@@ -54,7 +55,7 @@ function return_block_hor!(A, cachedblocks, diag_pivot_tile,  col_sweep_tile, se
     setorreturn_block!(cachedblocks, A, diag_pivot_tile,  col_sweep_tile, secondpos, prop, return_block!, true, makecopies)
 end
 
-function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool, onGPU::Bool,  docalc::Bool, makecopies::Bool)
+function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,  docalc::Bool, makecopies::Bool)
     xrange= prop.block_x_range
     yrange= prop.block_y_range 
     if (!single) && col
@@ -64,25 +65,29 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
     end
 
     T=typeof(parent(first(cachedblocks)))
-    makecopies && (cachedblockscopy=T(view(cachedblocks[1],xrange,yrange)))
-    docalc && (Qfactor = col ? (qr(cachedblockscopy).Q)' : qr(cachedblockscopy').Q )
+    makecopies && (cachedblockfirstcopy=T((view(cachedblocks[1],xrange,yrange))))
+    docalc && (Qfactor = col ? (qr(cachedblockfirstcopy).Q)' : qr(cachedblockfirstcopy').Q )
 
+    CUDA.synchronize()
     @sync for j in eachindex(cachedblocks)
         Threads.@spawn begin
-            makecopies && (cachedblockscopy=T(view(cachedblocks[j],xrange,yrange)))
-            docalc && (col ? lmul!(Qfactor, cachedblockscopy) : rmul!(cachedblockscopy, Qfactor))
-            makecopies && (view(cachedblocks[j],xrange,yrange).= cachedblockscopy)
-            onGPU && CUDA.synchronize()
+            makecopies && (cachedblockcurrentcopy=T(view(cachedblocks[j],xrange,yrange)))
+            docalc && (col ? lmul!(Qfactor, cachedblockcurrentcopy) : rmul!(cachedblockcurrentcopy, Qfactor))
+            makecopies && (view(cachedblocks[j],xrange,yrange).= cachedblockcurrentcopy)
+            makecopies && CUDA.unsafe_free!(cachedblockcurrentcopy)
+            CUDA.synchronize()
         end
     end
+    makecopies && CUDA.unsafe_free!(cachedblockfirstcopy)
     return;
 end
+
+
 
 #QR, lmul, copy of non-contigous views
 #TO DO: dont calculate zeros lol
 
 function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked_cols, onGPU::Bool, docalc::Bool, makecopies::Bool)
-    
     (m,n) = size(A)
     if m != block_x_size*no_blocked_rows
         error("dimension mismatch")
@@ -105,11 +110,12 @@ function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked
     for diag_pivot_tile in 1:no_sweeps
         # QR sweep
         makecopies && (cachedblocks=[view(cachedblocks_large[i],1:(block_x_size*2),1:block_y_size) for i in 1:(no_blocked_cols-diag_pivot_tile+1)]) #fix the lengths
+        #insert different cachedblocks
         set_block_vert!(cachedblocks, A, diag_pivot_tile, diag_pivot_tile, false, prop, makecopies)
-        QR!(cachedblocks, prop, true, true, onGPU, docalc, makecopies)
+        QR!(cachedblocks, prop, true, true,  docalc, makecopies)
         for row_sweep in diag_pivot_tile+1:no_blocked_rows
             set_block_vert!(cachedblocks, A, diag_pivot_tile,  row_sweep, true, prop, makecopies)
-            QR!(cachedblocks, prop, false, true, onGPU, docalc, makecopies)
+            QR!(cachedblocks, prop, false, true, docalc, makecopies)
             return_block_vert!(A, cachedblocks, diag_pivot_tile,  row_sweep, true, prop , makecopies)
         end
         return_block_vert!(A, cachedblocks, diag_pivot_tile,  diag_pivot_tile, false, prop , makecopies) 
@@ -119,10 +125,10 @@ function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked
         #LQ sweep
         makecopies && (cachedblocks=[view(cachedblocks_large[i],1:block_x_size,1:(block_y_size*2) ) for i in 1:(no_blocked_rows-diag_pivot_tile+1)])
         set_block_hor!(cachedblocks, A, diag_pivot_tile, diag_pivot_tile+1, false, prop, makecopies)
-        QR!(cachedblocks, prop, true, false, onGPU, docalc, makecopies)
+        QR!(cachedblocks, prop, true, false,  docalc, makecopies)
         for col_sweep in diag_pivot_tile+2:no_blocked_cols
             set_block_hor!(cachedblocks, A, diag_pivot_tile, col_sweep, true, prop, makecopies)
-            QR!(cachedblocks, prop, false, false, onGPU, docalc, makecopies)
+            QR!(cachedblocks, prop, false, false, docalc, makecopies)
             return_block_hor!(A,cachedblocks,diag_pivot_tile,col_sweep,true,prop, makecopies)
 
         end
@@ -135,9 +141,10 @@ function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked
 end
 
 
+CUDA.allowscalar(false)
 
-n=16
-x=4
+n=81
+x=9
 A=float.(rand(1:10,n,n))
 A_svd=svdvals(A)
 Adiag = BandBidiagonal!(A,x,x,x,x, true, true, true)
@@ -153,6 +160,7 @@ for x in x_values
     A3=deepcopy(A)
     A4=deepcopy(A)
     Adiag = BandBidiagonal!(A,x,x,x,x)
+end
 A_svd=svdvals(A)
 Adiag_svd=svdvals(Adiag)
 norm(A_svd-Adiag_svd,Inf)
@@ -263,3 +271,7 @@ plot(n_vals,timings_cpu, xlabel="Matrix size n", ylabel="svd calc time (s)", xax
 plot!(n_vals,timings_gpu, xlabel="Matrix size n", ylabel="svd calc time (s)", xaxis=:log10, yaxis=:log10, labels="GPU")
 
 #tolerance
+
+
+#implement QR
+#view to view
