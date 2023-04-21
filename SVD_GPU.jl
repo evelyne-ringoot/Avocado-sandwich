@@ -10,13 +10,8 @@ struct BandBidiag_properties
     no_blocked_cols::Int64
     block_x_range::UnitRange{Int64}
     block_y_range::UnitRange{Int64}
-    LT_indices
-    UT_indices
     BandBidiag_properties(block_x_size, block_y_size,no_blocked_rows,no_blocked_cols) = 
-        new(block_x_size, block_y_size,no_blocked_rows,no_blocked_cols, 1:block_x_size, 1:block_y_size,
-        reduce(vcat, [block_x_size*(j-1).+[ (j+1):block_x_size...] for j in 1:block_y_size]),
-        reduce(vcat, [block_x_size*(j-1).+[ 1:(j-1)...] for j in 2:block_y_size])
-        )
+        new(block_x_size, block_y_size,no_blocked_rows,no_blocked_cols, 1:block_x_size, 1:block_y_size )
 end
 
 function grab_block!(cachedblocks,A, prop::BandBidiag_properties, j, adj_x, adj_y, xpos_block, ypos_block, makecopies::Bool)
@@ -63,52 +58,98 @@ return_block_hor_firstblock!(A, cachedblocks, diag_pivot_tile,  col_sweep_tile, 
 return_block_hor_secondblock!(A, cachedblocks, diag_pivot_tile,  col_sweep_tile,  prop::BandBidiag_properties , makecopies::Bool) =
         setorreturn_block!(cachedblocks, A, diag_pivot_tile,  col_sweep_tile, true, prop, return_block!, true, makecopies)
 
-function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,  docalc::Bool, makecopies::Bool)
+function no_parallelQR(prop::BandBidiag_properties )
+    testmatrix=CUDA.randn(prop.block_x_size*2,prop.block_y_size)
+    gpu_mem_stats = (CUDA.@timed (esc(qr!(testmatrix))))[6]
+    blocksize=sizeof(Float32)*prop.block_x_size*prop.block_y_size*4+gpu_mem_stats
+    CUDA.unsafe_free!(testmatrix)
+    return (CUDA.MemoryInfo().free_bytes)*0.9/blocksize;
+end
+
+function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,  onGPU::Bool,  docalc::Bool, makecopies::Bool)
     xrange= prop.block_x_range
     yrange= prop.block_y_range 
-    if single
-        if col
-            zeroindices=prop.LT_indices
-        else
-            zeroindices=prop.UT_indices
-        end
-    else
+    xrangeT= prop.block_x_range
+    yrangeT= prop.block_y_range 
+    if (!single)
         if col
             xrange = 1:(prop.block_x_size*2)
-            zeroindices=reduce(vcat, [((i*prop.block_x_size*2) .+((prop.block_x_size+1):(2*prop.block_x_size))) for i in 0:(prop.block_y_size-1)])
+            xrangeT= xrange
+            yrangeT= yrange
         else
+            yrangeT=yrange
             yrange = 1:(prop.block_y_size*2)
-            zeroindices=(prop.block_x_size*prop.block_y_size+1):2*prop.block_x_size*prop.block_y_size
+            xrangeT = 1:(prop.block_x_size*2)
         end
     end
 
-    docalc && ( Qfactor = col ? (qr!(view(cachedblocks[1],xrange,yrange)).Q)' : qr!(view(cachedblocks[1],xrange,yrange)').Q )
-
-    CUDA.synchronize()
-    @sync for j in 2:length(cachedblocks)
-        Threads.@spawn begin
-            docalc && (col ? lmul!(Qfactor, view(cachedblocks[j],xrange,yrange)) : rmul!(view(cachedblocks[j],xrange,yrange), Qfactor))
-            CUDA.synchronize()
+    if docalc
+        if col
+            Qfactor = (qr!(view(cachedblocks[1],xrange,yrange)).Q)' 
+        else
+            tempspace=view(cachedblocks[1],prop.block_x_range.+prop.block_x_size,prop.block_y_range.+prop.block_y_size)
+            transpose!(tempspace, view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
+            view(cachedblocks[1],prop.block_x_range,prop.block_y_range) .= tempspace
+            if (!single)
+                tempspace=view(cachedblocks[1],prop.block_x_range .+prop.block_x_size,prop.block_y_range)
+                transpose!(tempspace, view(cachedblocks[1], prop.block_x_range ,prop.block_y_range .+prop.block_y_size))
+            end
+            Qfactor= qr!(view(cachedblocks[1],xrangeT,yrangeT)).Q 
         end
     end
-    docalc && (view(cachedblocks[1],xrange,yrange)[zeroindices].=0)
-    makecopies && CUDA.unsafe_free!(Qfactor)
     
+    CUDA.synchronize()
+    #@sync 
+    for j in 2:length(cachedblocks)
+        #Threads.@spawn begin
+            if docalc 
+                myview=view(cachedblocks[j],xrange,yrange)
+                if col
+                    lmul!(Qfactor,myview )
+                else
+                    rmul!(myview, Qfactor)
+                end
+            end
+            CUDA.synchronize()
+        #end
+    end
+    CUDA.synchronize()
+    if docalc
+        if col 
+            triu!(view(cachedblocks[1],xrangeT,yrangeT))
+        else
+            tempspace=view(cachedblocks[1],prop.block_x_range.+prop.block_x_size,prop.block_y_range.+prop.block_y_size)
+            transpose!(tempspace, view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
+            view(cachedblocks[1],prop.block_x_range,prop.block_y_range) .= tempspace
+            tril!(view(cachedblocks[1],xrangeT,yrangeT))
+            view(cachedblocks[1], prop.block_x_range ,prop.block_y_range .+prop.block_y_size) .= 0
+        end
+    end
+    if makecopies && onGPU
+        if col 
+            CUDA.unsafe_free!(Qfactor.parent.τ)
+        else
+            CUDA.unsafe_free!(Qfactor.τ)
+        end
+    end 
     return;
 end
 
-QR_single_col!(cachedblocks, prop::BandBidiag_properties, docalc::Bool, makecopies::Bool) =
-    QR!(cachedblocks, prop::BandBidiag_properties, true, true,  docalc::Bool, makecopies::Bool)
-QR_single_row!(cachedblocks, prop::BandBidiag_properties, docalc::Bool, makecopies::Bool) =
-    QR!(cachedblocks, prop::BandBidiag_properties, true, false,  docalc::Bool, makecopies::Bool)
-QR_double_col!(cachedblocks, prop::BandBidiag_properties, docalc::Bool, makecopies::Bool) =
-    QR!(cachedblocks, prop::BandBidiag_properties, false, true,  docalc::Bool, makecopies::Bool)
-QR_double_row!(cachedblocks, prop::BandBidiag_properties, docalc::Bool, makecopies::Bool) =
-    QR!(cachedblocks, prop::BandBidiag_properties, false, false,  docalc::Bool, makecopies::Bool)
+QR_single_col!(cachedblocks, prop::BandBidiag_properties,  onGPU::Bool, docalc::Bool, makecopies::Bool) =
+    QR!(cachedblocks, prop::BandBidiag_properties, true, true,  onGPU::Bool,  docalc::Bool, makecopies::Bool)
+QR_single_row!(cachedblocks, prop::BandBidiag_properties,  onGPU::Bool, docalc::Bool, makecopies::Bool) =
+    QR!(cachedblocks, prop::BandBidiag_properties, true, false,  onGPU::Bool,  docalc::Bool, makecopies::Bool)
+QR_double_col!(cachedblocks, prop::BandBidiag_properties,  onGPU::Bool, docalc::Bool, makecopies::Bool) =
+    QR!(cachedblocks, prop::BandBidiag_properties, false, true,   onGPU::Bool, docalc::Bool, makecopies::Bool)
+QR_double_row!(cachedblocks, prop::BandBidiag_properties,  onGPU::Bool, docalc::Bool, makecopies::Bool) =
+    QR!(cachedblocks, prop::BandBidiag_properties, false, false,  onGPU::Bool,  docalc::Bool, makecopies::Bool)
 
 #TO DO: dont calculate zeros lol
 
-function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked_cols, onGPU::Bool, docalc::Bool, makecopies::Bool)
+
+
+function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked_cols, no_parallel, onGPU::Bool, docalc::Bool, makecopies::Bool)
+    A=Float32.(A)
     (m,n) = size(A)
     if m != block_x_size*no_blocked_rows
         error("dimension mismatch")
@@ -119,43 +160,90 @@ function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked
     no_sweeps= min(no_blocked_cols,no_blocked_rows)
     prop = BandBidiag_properties(block_x_size, block_y_size,no_blocked_rows,no_blocked_cols)
 
-    if onGPU
-        cachedblocks_large=[CUDA.zeros(block_x_size*2,block_y_size*2) for _ in 1:max(no_blocked_cols,no_blocked_rows)]
-    else
-        cachedblocks_large=[zeros(block_x_size*2,block_y_size*2) for _ in 1:max(no_blocked_cols,no_blocked_rows)]
-    end
     
     for diag_pivot_tile in 1:no_sweeps
+        
         # QR sweep
-        cachedblocks=[view(cachedblocks_large[i],1:(block_x_size*2),1:block_y_size) for i in 1:(no_blocked_cols-diag_pivot_tile+1)]
+        if onGPU
+            cachedblocks=[CUDA.zeros(block_x_size*2,block_y_size) for _ in 1:no_blocked_cols-diag_pivot_tile+1]
+        else
+            cachedblocks=[zeros(block_x_size*2,block_y_size) for _ in 1:no_blocked_cols-diag_pivot_tile+1]
+        end
+        
         set_block_vert_firstblock!(cachedblocks, A, diag_pivot_tile, diag_pivot_tile,  prop, makecopies)
-        QR_single_col!(cachedblocks, prop, docalc, makecopies)
+        QR_single_col!(cachedblocks, prop, onGPU, docalc, makecopies)
 
         for row_sweep in diag_pivot_tile+1:no_blocked_rows
             set_block_vert_secondblock!(cachedblocks, A, diag_pivot_tile,  row_sweep, prop, makecopies)
-            QR_double_col!(cachedblocks, prop,  docalc, makecopies)
+            QR_double_col!(cachedblocks, prop, onGPU, docalc, makecopies)
             return_block_vert_secondblock!(A, cachedblocks, diag_pivot_tile,  row_sweep,  prop , makecopies)
         end
         return_block_vert_firstblock!(A, cachedblocks, diag_pivot_tile,  diag_pivot_tile,  prop , makecopies) 
-
         diag_pivot_tile==no_sweeps && break
+
         #LQ sweep
-        cachedblocks=[view(cachedblocks_large[i],1:block_x_size,1:(block_y_size*2) ) for i in 1:(no_blocked_rows-diag_pivot_tile+1)]
+        if onGPU
+            cachedblocks=[CUDA.zeros(block_x_size*2,block_y_size*2) for _ in 1:no_blocked_rows-diag_pivot_tile+1]
+        else
+            cachedblocks=[zeros(block_x_size*2,block_y_size*2) for _ in 1:no_blocked_rows-diag_pivot_tile+1]
+        end
+        
         set_block_hor_firstblock!(cachedblocks, A, diag_pivot_tile, diag_pivot_tile+1, prop, makecopies)
-        QR_single_row!(cachedblocks, prop, docalc, makecopies)
+        QR_single_row!(cachedblocks, prop,onGPU, docalc, makecopies)
 
         for col_sweep in diag_pivot_tile+2:no_blocked_cols
             set_block_hor_secondblock!(cachedblocks, A, diag_pivot_tile, col_sweep, prop, makecopies)
-            QR_double_row!(cachedblocks, prop,  docalc, makecopies)
+            QR_double_row!(cachedblocks, prop, onGPU,  docalc, makecopies)
             return_block_hor_secondblock!(A,cachedblocks,diag_pivot_tile,col_sweep, prop, makecopies)
         end
 
         return_block_hor_firstblock!(A,cachedblocks,diag_pivot_tile,diag_pivot_tile+1, prop, makecopies)
-        onGPU && (CUDA.unsafe_free!(cachedblocks_large[1]))
-        popfirst!(cachedblocks_large)
+
     end
     return round.(A,digits=5)
 end
 
+function QR_row!(A, startindex, lastindex, indexgap, target_bandwidth)
+    temp=Float32.(zeros(lastindex-startindex-indexgap+1, target_bandwidth))
+    transpose!(temp,view(A,startindex:target_bandwidth+startindex-1, startindex+indexgap:lastindex))
+    Qfactor=qr(temp).Q
+    rmul!(view(A,startindex: lastindex, startindex+indexgap:lastindex),Qfactor)
+    return;
+end
+
+function QR_col!(A, startindex, lastindex, indexgap, target_bandwidth)
+    Qfactor=(qr(view(A,startindex:lastindex, startindex:target_bandwidth+startindex-1)).Q)'
+    lmul!(Qfactor, view(A,startindex: lastindex, startindex:indexgap+lastindex) )
+    return;
+end
+
+function block_bidiagonalize!(A, n, bandwidth, target_bandwidth)
+    for j=1:target_bandwidth:n-target_bandwidth    #bulge chasing: elimination on row j+1
+        QR_row!(A,j, min(j+bandwidth+target_bandwidth-1, n) , target_bandwidth, target_bandwidth)
+        for i=j:bandwidth:n
+            lastindex=min(i+bandwidth+target_bandwidth-1, n) #index of end of block and its neighbor
+            s_capped= min(bandwidth+target_bandwidth-1, max(n-i-bandwidth-target_bandwidth+1,0))
+            
+            QR_col!(A,i+target_bandwidth,lastindex,s_capped, (i+2*target_bandwidth-1>n) ? n-i-target_bandwidth+1 : target_bandwidth)
+            i+target_bandwidth>(n-bandwidth) && break
+            QR_row!(A,i+target_bandwidth,lastindex+s_capped,bandwidth, target_bandwidth)
+        end
+    end
+    return A
+end
+
+function bidiagonalize(A, bandwidth)
+    A=Float32.(A)
+    (m,n) = size(A)
+    while bandwidth>16
+        bandwidth=round(Int,bandwidth/2)
+        block_bidiagonalize!(A,n,bandwidth*2,bandwidth)
+    end
+
+    block_bidiagonalize!(A, n,bandwidth,1)
+    display(A)
+    return A     
+
+end
 
 CUDA.allowscalar(false)

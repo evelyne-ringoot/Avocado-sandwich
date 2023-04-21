@@ -2,118 +2,161 @@ pwd()
 cd(raw"C:\Users\evely\OneDrive\Documents\CSE_MIT\Avocado")
 
 include("SVD_GPU.jl")
+using Plots, BenchmarkTools, Adapt, Revise, CUDA, LinearAlgebra
 
-using Plots, BenchmarkTools
-n=6
-x=2
-y=3
-A=float.(rand(1:10,n,n))
-A_svd=svdvals(A)
-Adiag = BandBidiagonal!(A,x,x,y,y, true, true, true)
-Adiag_svd=svdvals(Adiag)
-norm(A_svd-Adiag_svd,Inf)
+################################################################################################
+################### profiler stuff  ####################################################
+###########################################################################################
 
-x_values=[4, 10, 17, 30, 50]
 
-for x in x_values
-    n=x*x
-    A=float.(rand(1:10,n,n))
-    A2=deepcopy(A)
-    A3=deepcopy(A)
-    A4=deepcopy(A)
-    Adiag = BandBidiagonal!(A,x,x,x,x)
+n=2^5;
+x=2^3;
+y=4;
+A=rand(1:10,n,n);
+Acu=A|>cu;
+A_svd=svdvals(Acu);
+CUDA.@profile begin
+    Adiag = BandBidiagonal!(A,x,x,y,y, 1, true, true, true);
+    NVTX.@mark "test this print" begin
+        println("test")
+    end
 end
-A_svd=svdvals(A)
-Adiag_svd=svdvals(Adiag)
-norm(A_svd-Adiag_svd,Inf)
-t1 = CUDA.@elapsed BandBidiagonal!(A2,x,x,x,x);
-t2 = @belapse BandBidiagonal_CPU!(A3,x,x,x,x, true);
-t3 = @belapsed BandBidiagonal_CPU!(A4,x,x,x,x, false);
 
-n=200
-x=50
-A=float.(rand(1:10,n,n))
-Acu = A |> cu
-A2=deepcopy(A)
-A3=deepcopy(A)
-t1 = CUDA.@time BandBidiagonal!(A,x,x,4,4)
-t2 = @btime BandBidiagonal_CPU!(A2,x,x,4,4)
-t3 = CUDA.@time svdvals!(Acu);
-t4 = @btime svdvals!(A3);
+
+################################################################################################
+################### verifying svd correctness  ####################################################
+###########################################################################################
+
+n=16;
+x=4;
+y=4;
+A=rand(1:10,n,n);
+Acu=A|>cu;
+A_svd=svdvals(Acu);
+
+Adiag = BandBidiagonal!(A,x,x,y,y, 1, true, true, true);
+Adiag_svd=svdvals(Adiag);
+norm(Adiag,2) ≈ norm(A,2)
+Array(A_svd) ≈  Adiag_svd
+
+Adiag2=round.(bidiagonalize(Adiag,x),digits=4);
+Adiag2_svd=svdvals(Adiag2);
+Array(A_svd) ≈  Adiag2_svd
+norm(Adiag2,2) ≈ norm(A,2)
+
+n = size(Adiag2,1)
+elty=eltype(Adiag2)
+U, Vt, C = Matrix{elty}(I, n, n), Matrix{elty}(I, n, n), Matrix{elty}(I, n, n)
+Asvdvals, _ = LAPACK.bdsqr!('U', diag(Adiag2), diag(Adiag2,1), Vt, U, C)
+norm(Asvdvals,2) ≈ norm(A,2)
+Asvdvals ≈ Array(A_svd)
+
+################################################################################################
+################### Benchmarking svd  ####################################################
+###########################################################################################
+
+
+function mysvd(A,x,y)
+    Adiag = BandBidiagonal!(A,x,x,y,y, 1, true, true, true);
+    Adiag=bidiagonalize(Adiag,x);
+    GC.gc(true)
+    CUDA.reclaim()
+    return;
+end
+
+function cpusvd(A)
+    svd(A, alg=LinearAlgebra.QRIteration());
+    return;
+end
+
+function cusvd(A)
+    Acu=A|>cu;
+    A_svd=Array(svdvals(CuArray(Acu), alg=CUDA.CUSOLVER.QRAlgorithm()));
+    GC.gc(true)
+    CUDA.reclaim()
+    return;
+end
+
+timings=zeros(5,3)
+ns=[round(Int,2^i) for i=10:14]
+for (i,n) in enumerate(ns[2])
+    println(n)
+    A=rand(Float32,n,n)
+    timings[i+1,1]= @elapsed cusvd(A);
+    timings[i+1,2]= @elapsed cpusvd(A);
+    timings[i+1,3]= @elapsed mysvd(A,2^11,Int(n/2^11));
+    GC.gc(true)
+    CUDA.reclaim()
+end
+
+plot(ns[1:end-1],timings[1:end-1,1], xlabel="", ylabel="", xaxis=:log2, yaxis=:log10, 
+label="CUDA" , linewidth=5, color=palette(:Blues)[9] )
+scatter!(ns[1:end-1],timings[1:end-1,1], label="" , color=palette(:Blues)[9], markersize=5 ,  markerstrokewidth=0)
+plot!(ns[1:3],timings[1:3,2], label= "CPU", linewidth=5 , grid=false,  color=palette(:Blues)[9])
+scatter!(ns[1:3],timings[1:3,2], label= "", linewidth=5 , grid=false,  color=palette(:Blues)[9],  markerstrokewidth=0)
+plot!(ns[1:5],timings[1:5,3], label= "OOM", linewidth=5 , grid=false,  color=palette(:Greens)[6])
+scatter!(ns[1:5],timings[1:5,3], label= "", linewidth=5 , grid=false,  color=palette(:Greens)[6],  markerstrokewidth=0)
+plot!(dpi=1800)
+plot!(legend=false)
+plot!(xticks=[1024,4096,16384])
+plot!(yticks=[1,10,100,1000])
+savefig("OOM.png")
+
+################################################################################################
+################### To do list  ####################################################
+###########################################################################################
+
+#sum of squares 
+
+#make code prettier
+#verify indices of bulge chasing
+#overlap communication and calculation
+#Switch to GPUArrays
+#make this possible for any matrix size
+#define block sizes ourselves
+#change qr to LQ
+#optimize memory usage
+#add reft and left singular vectors
+#parallelize/GPU-ize start of bulge chasing
+#bulge chasing for non-square non-powers of two
+#avoid reallocations
+#non-square matrices
+#reduce to bidiag
+#add typechecks and errorchecks
+
+#access streams
+
+#bidiag to diag
+#left and right singular vectors
+
 
 ################################################################################################
 ################### Random other stuff ####################################################
 ###########################################################################################
 
-n=500
-A=CUDA.randn(n,n)
-A=randn(n,n)
+#benchmark qr
 
-function qr_notinplace(A)
-    qr(A)
-    return;
-end
-function qr_inplace!(A)
-    qr!(A) #why is it not possible to provide QR
-    return;
-end
+ns=[round(Int,2^i) for i=1:12]
+timings=zeros(length(ns),2)
 
-#CUDA profiler
-t1= @btime qr_notinplace(A) setup=begin A=rand(5000,500) end
-t2= @btime qr_inplace!(A) setup=begin A=rand(5000,500) end ###how to make this faster
-
-A=CUDA.ones(500,500)
-A[1:10,1:10]= 2*ones(10,10)
-
-timings_cpu=[]
-timings_gpu=[]
-for n in [round(Int,10^i) for i=1:0.5:3.5]
+for (i,n) in enumerate(ns)
     println(n)
-    A=rand(n,n)
-    t= @belapsed qr($A)
-    push!(timings_cpu,t)
+    A=rand(Float32,2n,n)
+    X=rand(Float32,n,n)
     B=A|>cu
-    t= @belapsed qr($B)
-    push!(timings_gpu,t)
+    timings[i,1]= @belapsed qr($A,$X,$n);
+    timings[i,2]= @CUDA.elapsed qr(B,X,n);
 end
 
-plot(ns,timings_cpu, xlabel="Matrix size n", ylabel="QR calc time (s)", xaxis=:log10, yaxis=:log10, labels="CPU", )
-plot!(ns,timings_gpu, xlabel="Matrix size n", ylabel="QR calc time (s)", xaxis=:log10, yaxis=:log10, labels="GPU")
+plot(ns,timings, xlabel="", ylabel="", grid=false,xaxis=:log2, yaxis=:log10, color=[palette(:Blues)[9] palette(:Greens)[6]] , linewidth=8,
+label=["CPU"  "GPU" ] )
+scatter!(ns,timings,  color=[palette(:Blues)[9] palette(:Greens)[6]] , markersize=7 ,  markerstrokewidth=0)
+plot!(dpi=1800)
+plot!(legend=false)
+plot!(xticks=[4,128,4096])
+plot!(yticks=[0.0001,0.01,1])
+savefig("QRtiming.png")
 
-n=2000
-a=CUDA.randn(n,n)
-
-function assign_values_withoutalloc(a)
-    for i in 1:200
-        a[i.+(5:6),i*10] .= i*10 .+(5:6)
-    end
-end
-
-function assign_values_withalloc(a)
-    for i in 1:200
-        xval=i.+(5:6)
-        yval=i*10
-        assignval= i*10 .+(5:6)
-        a[xval,yval] .= assignval
-    end
-end
-
-t1 = CUDA.@time assign_values_withoutalloc(a)
-t2= CUDA.@time  assign_values_withalloc(a)
-
-x_size=6
-y_size=5
-
-
-function compute_gpu(outputs,inputs)
-    @sync for i in eachindex(inputs)
-        Threads.@spawn begin
-            #do_svd!(outputs[i], inputs[i])
-            CUDA.synchronize()
-        end
-        end
-    return outputs
-end
 
 #benchmark svd
 
@@ -131,5 +174,3 @@ end
 
 plot(n_vals,timings_cpu, xlabel="Matrix size n", ylabel="svd calc time (s)", xaxis=:log10, yaxis=:log10, labels="CPU", )
 plot!(n_vals,timings_gpu, xlabel="Matrix size n", ylabel="svd calc time (s)", xaxis=:log10, yaxis=:log10, labels="GPU")
-
-1+1
