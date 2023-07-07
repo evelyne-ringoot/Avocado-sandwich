@@ -66,6 +66,14 @@ function no_parallelQR(prop::BandBidiag_properties )
     return (CUDA.MemoryInfo().free_bytes)*0.9/blocksize;
 end
 
+function no_parallelQR(prop::BandBidiag_properties )
+    testmatrix=CUDA.randn(prop.block_x_size*2,prop.block_y_size)
+    gpu_mem_stats = (CUDA.@timed (esc(qr!(testmatrix))))[6]
+    blocksize=sizeof(Float32)*prop.block_x_size*prop.block_y_size*4+gpu_mem_stats
+    CUDA.unsafe_free!(testmatrix)
+    return (CUDA.MemoryInfo().free_bytes)*0.9/blocksize;
+end
+
 function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,  onGPU::Bool,  docalc::Bool, makecopies::Bool)
     xrange= prop.block_x_range
     yrange= prop.block_y_range 
@@ -87,12 +95,11 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
         if col
             Qfactor = (qr!(view(cachedblocks[1],xrange,yrange)).Q)' 
         else
-            tempspace=view(cachedblocks[1],prop.block_x_range.+prop.block_x_size,prop.block_y_range.+prop.block_y_size)
-            transpose!(tempspace, view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
+            tempspace=adjoint(view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
             view(cachedblocks[1],prop.block_x_range,prop.block_y_range) .= tempspace
             if (!single)
-                tempspace=view(cachedblocks[1],prop.block_x_range .+prop.block_x_size,prop.block_y_range)
-                transpose!(tempspace, view(cachedblocks[1], prop.block_x_range ,prop.block_y_range .+prop.block_y_size))
+                tempspace=adjoint(view(cachedblocks[1], prop.block_x_range ,prop.block_y_range .+prop.block_y_size))
+                view(cachedblocks[1],prop.block_x_range .+prop.block_x_size,prop.block_y_range) .= tempspace
             end
             Qfactor= qr!(view(cachedblocks[1],xrangeT,yrangeT)).Q 
         end
@@ -118,8 +125,7 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
         if col 
             triu!(view(cachedblocks[1],xrangeT,yrangeT))
         else
-            tempspace=view(cachedblocks[1],prop.block_x_range.+prop.block_x_size,prop.block_y_range.+prop.block_y_size)
-            transpose!(tempspace, view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
+            tempspace=adjoint(view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
             view(cachedblocks[1],prop.block_x_range,prop.block_y_range) .= tempspace
             tril!(view(cachedblocks[1],xrangeT,yrangeT))
             view(cachedblocks[1], prop.block_x_range ,prop.block_y_range .+prop.block_y_size) .= 0
@@ -203,47 +209,47 @@ function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked
     return round.(A,digits=5)
 end
 
-function QR_row!(A, startindex, lastindex, indexgap, target_bandwidth)
-    temp=Float32.(zeros(lastindex-startindex-indexgap+1, target_bandwidth))
-    transpose!(temp,view(A,startindex:target_bandwidth+startindex-1, startindex+indexgap:lastindex))
-    Qfactor=qr(temp).Q
-    rmul!(view(A,startindex: lastindex, startindex+indexgap:lastindex),Qfactor)
+function QR_row!(A, startindex, lastindex, indexgap)
+    qr!(adjoint(view(A,startindex:lastindex, startindex+indexgap:lastindex)))
+    tril!(view(A,startindex:lastindex, startindex+indexgap:lastindex))
     return;
 end
 
-function QR_col!(A, startindex, lastindex, indexgap, target_bandwidth)
-    Qfactor=(qr(view(A,startindex:lastindex, startindex:target_bandwidth+startindex-1)).Q)'
-    lmul!(Qfactor, view(A,startindex: lastindex, startindex:indexgap+lastindex) )
+function QR_col!(A, startindex, lastindex, indexgap)
+    qr!(view(A,startindex:lastindex, startindex:indexgap+lastindex))
+    triu!(view(A,startindex:lastindex, startindex:indexgap+lastindex))
     return;
 end
 
 function block_bidiagonalize!(A, n, bandwidth, target_bandwidth)
     for j=1:target_bandwidth:n-target_bandwidth    #bulge chasing: elimination on row j+1
-        QR_row!(A,j, min(j+bandwidth+target_bandwidth-1, n) , target_bandwidth, target_bandwidth)
+        QR_row!(A,j, min(j+bandwidth+target_bandwidth-1, n) , target_bandwidth)
+        
         for i=j:bandwidth:n
             lastindex=min(i+bandwidth+target_bandwidth-1, n) #index of end of block and its neighbor
             s_capped= min(bandwidth+target_bandwidth-1, max(n-i-bandwidth-target_bandwidth+1,0))
+            QR_col!(A,i+target_bandwidth,lastindex,s_capped)
             
-            QR_col!(A,i+target_bandwidth,lastindex,s_capped, (i+2*target_bandwidth-1>n) ? n-i-target_bandwidth+1 : target_bandwidth)
             i+target_bandwidth>(n-bandwidth) && break
-            QR_row!(A,i+target_bandwidth,lastindex+s_capped,bandwidth, target_bandwidth)
+            QR_row!(A,i+target_bandwidth,lastindex+s_capped,bandwidth)
         end
     end
     return A
 end
 
+
+
+
 function bidiagonalize(A, bandwidth)
     A=Float32.(A)
     (m,n) = size(A)
     while bandwidth>16
+        block_bidiagonalize!(A,n,bandwidth,round(Int,bandwidth/2))
         bandwidth=round(Int,bandwidth/2)
-        block_bidiagonalize!(A,n,bandwidth*2,bandwidth)
     end
 
     block_bidiagonalize!(A, n,bandwidth,1)
-    display(A)
     return A     
-
 end
 
 CUDA.allowscalar(false)
