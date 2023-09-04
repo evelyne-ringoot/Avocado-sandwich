@@ -4,27 +4,29 @@ cd(raw"C:\Users\evely\OneDrive\Documents\CSE_MIT\Avocado")
 include("SVD_GPU.jl")
 using Plots, BenchmarkTools, Adapt, Revise, CUDA, LinearAlgebra
 
+#create testmatrix
+block_size=2^8; 
+no_blocks=4;
+mat_size=x*y;
+testmatrix=rand(1:10,mat_size,mat_size);
+testmatrix_gpu=testmatrix|>cu;
+testmatrix_svd_ref=svdvals(testmatrix_gpu, alg=CUDA.CUSOLVER.QRAlgorithm());
 
-x=2^8;
-y=4;
-n=x*y;
-A=rand(1:10,n,n);
-Acu=A|>cu;
-A_svd=svdvals(Acu, alg=CUDA.CUSOLVER.QRAlgorithm());
+#test reduction to bandbidiagonal
+testmatrix_banddiag = BandBidiagonal!(testmatrix,block_size,block_size,no_blocks,no_blocks, 1, true, true, true);
+testmatrix_band_svd=svdvals!(CuArray(testmatrix_banddiag), alg=CUDA.CUSOLVER.QRAlgorithm());
+norm(testmatrix_banddiag,2) ≈ norm(testmatrix,2)
+Array(testmatrix_band_svd) ≈  Array(testmatrix_svd_ref)
 
-Adiag = BandBidiagonal!(A,x,x,y,y, 1, true, true, true);
-Adiag_svd=svdvals!(CuArray(Adiag), alg=CUDA.CUSOLVER.QRAlgorithm());
-norm(Adiag,2) ≈ norm(A,2)
-Array(A_svd) ≈  Array(Adiag_svd)
+#test reduction to bidiagonal
+testmatrix_bidiag=bidiagonalize(testmatrix_banddiag,block_size);
+testmatrix_svd=svdvals!(CuArray(testmatrix_bidiag), alg=CUDA.CUSOLVER.QRAlgorithm());
+norm(testmatrix_bidiag,2) ≈ norm(testmatrix,2)
+Array(testmatrix_bidiag) ≈  Array(testmatrix_svd_ref)
 
-Adiag2=round.(bidiagonalize(Adiag,x),digits=4);
-Adiag2_svd=svdvals!(CuArray(Adiag2), alg=CUDA.CUSOLVER.QRAlgorithm());
-Array(A_svd) ≈  Array(Adiag2_svd)
-norm(Adiag2,2) ≈ norm(A,2)
-
-n = size(Adiag2,1)
-elty=eltype(Adiag2)
+#test lapack svd from bidiagonal
+elty=eltype(testmatrix_bidiag)
 U, Vt, C = Matrix{elty}(I, n, n), Matrix{elty}(I, n, n), Matrix{elty}(I, n, n);
-Asvdvals, _ = LAPACK.bdsqr!('U', diag(Adiag2), diag(Adiag2,1), Vt, U, C);
-norm(Asvdvals,2) ≈ norm(A,2)
-Asvdvals ≈ Array(A_svd)
+testmatrix_fullsvd, _ = LAPACK.bdsqr!('U', diagtestmatrix_bidiag, diag(testmatrix_bidiag,1), Vt, U, C);
+norm(testmatrix_fullsvd,2) ≈ norm(testmatrix,2)
+norm(testmatrix,2) ≈ Array(testmatrix_svd_ref)
