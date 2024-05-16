@@ -82,10 +82,13 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
             xrangeT = 1:(prop.block_x_size*2)
         end
     end
-
+    temp=CUDA.zeros(length(xrange),length(yrange))
+    temp2=CUDA.zeros(length(xrange),length(yrange))
     if docalc
         if col
-            Qfactor = (qr!(view(cachedblocks[1],xrange,yrange)).Q)' 
+            copy!(temp, view(cachedblocks[1],xrange,yrange) )
+            Qfactor = (qr!(temp).Q)' 
+            copy!(view(cachedblocks[1],xrange,yrange),temp)
         else
             tempspace=view(cachedblocks[1],prop.block_x_range.+prop.block_x_size,prop.block_y_range.+prop.block_y_size)
             transpose!(tempspace, view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
@@ -103,12 +106,13 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
     for j in 2:length(cachedblocks)
         #Threads.@spawn begin
             if docalc 
-                myview=view(cachedblocks[j],xrange,yrange)
+                copy!(temp2,view(cachedblocks[j],xrange,yrange))
                 if col
-                    lmul!(Qfactor,myview )
+                    lmul!(Qfactor,temp2)
                 else
-                    rmul!(myview, Qfactor)
+                    rmul!(temp2, Qfactor)
                 end
+                copy!(view(cachedblocks[j],xrange,yrange), temp2)
             end
             CUDA.synchronize()
         #end
@@ -200,7 +204,7 @@ function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked
         return_block_hor_firstblock!(A,cachedblocks,diag_pivot_tile,diag_pivot_tile+1, prop, makecopies)
 
     end
-    return round.(A,digits=5)
+    return A
 end
 
 function QR_row!(A, startindex, lastindex, indexgap, target_bandwidth)
