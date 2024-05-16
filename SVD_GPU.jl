@@ -208,8 +208,7 @@ function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked
 end
 
 function QR_row!(A, startindex, lastindex, indexgap, target_bandwidth)
-    temp=Float32.(zeros(lastindex-startindex-indexgap+1, target_bandwidth))
-    transpose!(temp,view(A,startindex:target_bandwidth+startindex-1, startindex+indexgap:lastindex))
+    temp=transpose(view(A,startindex:target_bandwidth+startindex-1, startindex+indexgap:lastindex))
     Qfactor=qr(temp).Q
     rmul!(view(A,startindex: lastindex, startindex+indexgap:lastindex),Qfactor)
     return;
@@ -236,18 +235,16 @@ function block_bidiagonalize!(A, n, bandwidth, target_bandwidth)
     return A
 end
 
-function bidiagonalize(A, bandwidth)
-    A=Float32.(A)
+function bidiagonalize(Ain, bandwidth)
+    A=Array(Ain)
     (m,n) = size(A)
     while bandwidth>16
         bandwidth=round(Int,bandwidth/2)
-        block_bidiagonalize!(A,n,bandwidth*2,bandwidth)
+        block_bidiagonalize!(A,n,bandwidth*2,bandwidth);
     end
 
-    block_bidiagonalize!(A, n,bandwidth,1)
-    display(A)
-    return A     
-
+    block_bidiagonalize!(A, n,bandwidth,1);
+    return A 
 end
 
 CUDA.allowscalar(false)
