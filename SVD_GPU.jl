@@ -213,8 +213,8 @@ function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked
     return A
 end
 
-function QR_row!(A, startindex, lastindex, indexgap, target_bandwidth)
-    temp=transpose(view(A,startindex:target_bandwidth+startindex-1, startindex+indexgap:lastindex))
+function QR_row!(A, startindex, lastindex, indexgap)
+    temp=transpose(view(A,startindex:lastindex, startindex+indexgap:lastindex))
     Qfactor=qr(temp).Q
     rmul!(view(A,startindex: lastindex, startindex+indexgap:lastindex),Qfactor)
     return;
