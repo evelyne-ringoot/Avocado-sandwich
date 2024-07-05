@@ -1,58 +1,59 @@
 using LinearAlgebra, Random
 
-# WARNING: not tested for non-square matrices, does not work with weird matrices containing zeros etc
 
-#minimal working example of QR according to Trefethen, Bau Numerical Linear Algebra
-function simple_QR!(M)
-    (m,n)=size(M)
-    tau=zeros(n)
-    no_iter= (m>n) ? n : (m-1)
-    current_col=zeros(m)
-    temp_space=zeros(n)
-    for k in 1:no_iter
-        view(current_col,k:m).=view(M,k:m,k)
-        view(current_col,k).+=(view(current_col,k) .< 0 ? -1 : 1)*norm(view(current_col,k:m))
-        view(tau,k) .= 2*(view(current_col,k) /norm(view(current_col,k:m))).^2
-        view(current_col,k:m) ./= view(current_col,k)
-        view(temp_space,k:n) .= (view(current_col,k:m)'*view(M,k:m,k:n))'
-        view(M,k:m,k:n).-=view(tau,k).*view(current_col,k:m)*view(temp_space,k:n)'
-        view(M,(k+1):m,k).=view(current_col,(k+1):m)
+function BandBidiagonal_tile!(A,n, N)
+    for k in 1:1
+        qr1=qr(A[k,k])
+        A[k,k] .= qr1.R
+        for col in k+1:n
+            A[k,col] .= qr1.Q' * A[k,col]
+        end
+
+
+        for row in k+1:n
+            temp=[copy(A[k,k]);copy(A[row,k])]
+            println(temp)
+            qr2=qr(temp)
+            A[k,k] .=qr2.R
+            A[row,k] .= 0
+            for col in k+1:n
+                temp=[ copy(A[k,col]); copy(A[row,col])]
+                temp= qr2.Q' * temp
+                println(temp)
+                A[k,col] .= temp[1:N, 1:N]
+                A[row,col] .= temp[N+1:2N, 1:N]
+            end
+        end
+
+        if (k==n)
+            break
+        end
+
+        lq1=qr(A[k,k+1]')
+        A[k,k+1] .= lq1.R'
+        for row in k+1:n
+            A[row,k+1] .= A[row,k+1]*lq1.Q
+        end
+
+        for col in k+2:n
+            temp=[copy(A[k,k+1])';copy(A[k,col])']
+            lq2=qr(temp)
+            A[k,k] .=lq2.R'
+            A[k,col] .= 0
+            for row in k+1:n
+                temp=[copy(A[row,k+1])';copy(A[row,col])']
+                temp= lq2.Q * temp
+                A[row,k+1] .= temp[1:N,N+1:2N]'
+                A[row,col] .= temp[1:N, N+1:2N]'
+            end
+        end
+
     end
-    return M,tau
 end
 
-
-function applyQt_vec!(X, M, tau, m, n)
-    for k in 1:min(m,n)
-        @views X[k:m]=X[k:m]-tau[k]*[1;M[(k+1):m,k]]*([1;M[(k+1):m,k]]'*X[k:m])
-    end
-    return X
-end
-
-function applyQt_mat!(A, M,tau)
-    (m,n)=size(M)
-    for k=1:size(A,2) 
-        applyQt_vec!(view(A,:,k),M, tau, m,n)
-    end
-    return A
-end
-
-function getQt(M,tau)
-    (m,n)=size(M)
-    Q=zeros(m,m)
-    Q[diagind(Q)].=1
-    applyQt_mat!(Q, M,tau)
-    return Q
-end
-
-
-function getQt_block(M,tau)
-    (m,_)=size(M)
-    Q=zeros(2m,2m)+I
-    applyQt_mat_block!(Q, M,tau)
-    return Q
-end
-
+##################################
+#tiled algos
+##################################
 
 #minimal working example of OOC QR algorithm according to https://onlinelibrary.wiley.com/doi/full/10.1002/cpe.1301
 #works with assymetrical number of tiles, not with assymetrical blocks
@@ -156,21 +157,30 @@ end
 
 QR_ref.Q'.* negative ≈ Q_t 
 
-function applyQt_vec_block!(X, M, tau, m, n, m2)
-    for k in 1:min(m2,n)
-        @views X[k:m]=X[k:m]-tau[k]*[1;zeros(m-k-m2);M[:,k]]*([1;zeros(m-k-m2);M[:,k]]'*X[k:m])
-    end
-    for k in min(m2,n)+1:min(m,n)
-        @views X[k:m]=X[k:m]-tau[k]*[1;M[(k+1):m,k]]*([1;M[(k+1):m,k]]'*X[k:m])
-    end
-    return X
-end
 
-function applyQt_mat_block!(A, M,tau)
-    (m2,n)=size(M)
-    m=m2*2
-    for k=1:size(A,2) 
-        applyQt_vec_block!(view(A,:,k),M, tau, m,n, m2)
+###################################################"
+# OLD CODE JUST IN CASE #######################
+##########################################""
+
+#QR kernel
+for k in 1:n
+    q1, r1 = qr(A[k,k])
+    A[k,k].=r1
+    for i in k+1:n
+        A[k,i].=q1'*A[k,i]
     end
-    return A
+    for row in k+1:n
+        temp=zeros(2n,n)
+        temp[1:n,1:n].=A[k,k]
+        temp[n+1:2n,1:n]=A[row,k]
+        q2,r2=qr(temp)
+        A[k,k].=r2
+        for col in k+1:n
+            temp[1:n,1:n].=A[k,col]
+            temp[n+1:2n,1:n]=A[row,col]
+            temp=q2'*temp
+            A[k,col] .=temp[1:n,1:n]
+            A[row,col] .= temp[n+1:2n,1:n]
+        end
+    end
 end

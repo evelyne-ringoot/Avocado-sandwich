@@ -1,8 +1,5 @@
 using LinearAlgebra,  CUDA
 
-#to do:
-# move to AMD/GPU general
-
 struct BandBidiag_properties
     block_x_size::Int64 
     block_y_size::Int64
@@ -61,18 +58,11 @@ return_block_hor_secondblock!(A, cachedblocks, diag_pivot_tile,  col_sweep_tile,
 function no_parallelQR(prop::BandBidiag_properties )
     testmatrix=CUDA.randn(prop.block_x_size*2,prop.block_y_size)
     gpu_mem_stats = (CUDA.@timed (esc(qr!(testmatrix))))[6]
-    blocksize=sizeof(Float32)*prop.block_x_size*prop.block_y_size*4+gpu_mem_stats
+    blocksize=sizeof(Float64)*prop.block_x_size*prop.block_y_size*4+gpu_mem_stats
     CUDA.unsafe_free!(testmatrix)
     return (CUDA.MemoryInfo().free_bytes)*0.9/blocksize;
 end
 
-function no_parallelQR(prop::BandBidiag_properties )
-    testmatrix=CUDA.randn(prop.block_x_size*2,prop.block_y_size)
-    gpu_mem_stats = (CUDA.@timed (esc(qr!(testmatrix))))[6]
-    blocksize=sizeof(Float32)*prop.block_x_size*prop.block_y_size*4+gpu_mem_stats
-    CUDA.unsafe_free!(testmatrix)
-    return (CUDA.MemoryInfo().free_bytes)*0.9/blocksize;
-end
 
 function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,  onGPU::Bool,  docalc::Bool, makecopies::Bool)
     xrange= prop.block_x_range
@@ -90,12 +80,26 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
             xrangeT = 1:(prop.block_x_size*2)
         end
     end
-    temp=CUDA.zeros(length(xrange),length(yrange))
-    temp2=CUDA.zeros(length(xrange),length(yrange))
+    if onGPU
+        if col
+            temp=CUDA.zeros(length(xrange),length(yrange))
+        else
+            temp=CUDA.zeros(length(xrangeT),length(yrangeT))
+        end
+        temp2=CUDA.zeros(length(xrange),length(yrange))
+    else
+        if col
+            temp=zeros(length(xrange),length(yrange))
+        else
+            temp=zeros(length(xrangeT),length(yrangeT))
+        end
+        temp2=zeros(length(xrange),length(yrange))
+    end
     if docalc
         if col
             copy!(temp, view(cachedblocks[1],xrange,yrange) )
-            Qfactor = (qr!(temp).Q)' 
+            Qfactor = (qr!(temp).Q)
+            Qfactor = Qfactor' 
             copy!(view(cachedblocks[1],xrange,yrange),temp)
         else
             tempspace=adjoint(view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
@@ -104,7 +108,9 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
                 tempspace=adjoint(view(cachedblocks[1], prop.block_x_range ,prop.block_y_range .+prop.block_y_size))
                 view(cachedblocks[1],prop.block_x_range .+prop.block_x_size,prop.block_y_range) .= tempspace
             end
-            Qfactor= qr!(view(cachedblocks[1],xrangeT,yrangeT)).Q 
+            copy!(temp, view(cachedblocks[1],xrangeT,yrangeT))
+            Qfactor= qr!(temp).Q 
+            copy!(view(cachedblocks[1],xrangeT,yrangeT), temp)
         end
     end
     
@@ -114,7 +120,7 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
         #Threads.@spawn begin
             if docalc 
                 copy!(temp2,view(cachedblocks[j],xrange,yrange))
-                if col
+                if col 
                     lmul!(Qfactor,temp2)
                 else
                     rmul!(temp2, Qfactor)
@@ -126,18 +132,18 @@ function QR!(cachedblocks, prop::BandBidiag_properties, single::Bool, col::Bool,
     end
     CUDA.synchronize()
     if docalc
-        if col 
-            triu!(view(cachedblocks[1],xrangeT,yrangeT))
+        if col
+            view(cachedblocks[1],xrangeT,yrangeT).= triu(view(cachedblocks[1],xrangeT,yrangeT))
         else
             tempspace=adjoint(view(cachedblocks[1],prop.block_x_range,prop.block_y_range))
             view(cachedblocks[1],prop.block_x_range,prop.block_y_range) .= tempspace
-            tril!(view(cachedblocks[1],xrangeT,yrangeT))
+            view(cachedblocks[1],xrangeT,yrangeT) .= tril(view(cachedblocks[1],xrangeT,yrangeT))
             view(cachedblocks[1], prop.block_x_range ,prop.block_y_range .+prop.block_y_size) .= 0
         end
     end
     if makecopies && onGPU
         if col 
-            CUDA.unsafe_free!(Qfactor.parent.τ)
+            CUDA.unsafe_free!(Qfactor.Q.τ)
         else
             CUDA.unsafe_free!(Qfactor.τ)
         end
@@ -158,19 +164,13 @@ QR_double_row!(cachedblocks, prop::BandBidiag_properties,  onGPU::Bool, docalc::
 
 
 
-function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked_cols, no_parallel, onGPU::Bool, docalc::Bool, makecopies::Bool)
-    A=Float32.(A)
+function BandBidiagonal!(A,block_x_size, block_y_size,no_blocked_rows,no_blocked_cols,  onGPU::Bool)
+    docalc=true;
+    makecopies=true;
     (m,n) = size(A)
-    if m != block_x_size*no_blocked_rows
-        error("dimension mismatch")
-    elseif n!= block_y_size*no_blocked_cols
-        error("dimension mismatch")
-    end
-
     no_sweeps= min(no_blocked_cols,no_blocked_rows)
     prop = BandBidiag_properties(block_x_size, block_y_size,no_blocked_rows,no_blocked_cols)
 
-    
     for diag_pivot_tile in 1:no_sweeps
         
         # QR sweep
@@ -242,17 +242,44 @@ function block_bidiagonalize!(A, n, bandwidth, target_bandwidth)
     return A
 end
 
-function bidiagonalize(Ain, bandwidth)
-    A=Array(Ain)
+function bidiagonalize(A, bandwidth)
     (m,n) = size(A)
     while bandwidth>16
-        block_bidiagonalize!(A,n,bandwidth,round(Int,bandwidth/2))
         bandwidth=round(Int,bandwidth/2)
         block_bidiagonalize!(A,n,bandwidth*2,bandwidth);
     end
 
     block_bidiagonalize!(A, n,bandwidth,1);
     return A 
+end
+
+
+function my_CU_svdval(Ain::Matrix{Float32}, block_size::Int)
+    println(size(a))
+    A=copy(Ain)
+    n=size(A,1)
+    if (!ispow2(block_size)) || (n!=size(A,2)) || mod(n,block_size)!=0 || block_size<16
+        error("Not implemented")
+    end
+    no_blocks=Int(n/block_size)
+    banddiag = BandBidiagonal!(A,block_size,block_size, no_blocks,no_blocks,false);
+    bidiag=bidiagonalize(banddiag,block_size);
+    singvals, _, _, _, _,_= LAPACK.bdsdc!('U', 'N', diag(bidiag), diag(bidiag,1));
+    println(size(singvals))
+    return(singvals)
+end
+
+function my_CU_svdval(Ain::CuMatrix{Float32}, block_size::Int)
+    A=copy(Ain)
+    n=size(A,1)
+    if (!ispow2(block_size)) || (n!=size(A,2)) || mod(n,block_size)!=0 || block_size<16
+        error("Not implemented")
+    end
+    no_blocks=Int(n/block_size)
+    banddiag = BandBidiagonal!(A,block_size,block_size,no_blocks,no_blocks,true);
+    bidiag=bidiagonalize(Array(banddiag),block_size);
+    singvals, _, _, _, _,_= LAPACK.bdsdc!('U', 'N', diag(bidiag), diag(bidiag,1));
+    return(singvals)
 end
 
 CUDA.allowscalar(false)
