@@ -42,9 +42,13 @@ function bidiagonalize(A, bandwidth)
 end
 
 
-function my_CU_svdval(A::Matrix, block_size,no_blocks)
+function my_CU_svdval(A::Matrix, block_size)
     bidiag=bidiagonalize(A,block_size);
-    singvals, _, _, _, _,_= LAPACK.bdsdc!('U', 'N', diag(bidiag), diag(bidiag,1));
-    return(singvals)
+    return diag_lapack(bidiag) 
+end
+
+function diag_lapack(A)
+    singvals, _, _, _, _,_= LAPACK.bdsdc!('U', 'N', diag(A), diag(A,1));
+    return singvals
 end
 

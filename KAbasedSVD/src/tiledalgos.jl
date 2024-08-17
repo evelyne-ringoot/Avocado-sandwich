@@ -1,134 +1,264 @@
 
+########################################
+# GPU- only ##
+########################################
 
-include("QRkernels.jl")
-include("TiledMatrix.jl")
-
-function tiled_QR!(A::TiledMatrix, T)
-    for k in 1:A.no_tiles
-        QR1!(A,T,k)
-        for i in k+1:A.no_tiles
-            Qtapply1!(A,T,k,i)
-        end
+function tiled_QR!(A::GeneralTiledMatrix; kend=A.no_tiles)
+    verify_kerneldims(A)
+    for k in 1:kend
+        QRandmulQt1!(A,k)
         for row in k+1:A.no_tiles
-            QR2!(A,T,row,k)
-            for col in k+1:A.no_tiles
-                Qtapply2!(A,T,k,row,col)
+            QRandmulQt2!(A,row,k)
+        end
+    end
+    finish_algo!(A, kend)    
+end
+
+function Blockbidiag!(A::GeneralTiledMatrix; kend=A.no_tiles) 
+    verify_kerneldims(A)
+    for k in 1:kend
+
+        QRandmulQt1!(A,k, alg="SVD")
+        for row in k+1:A.no_tiles
+            QRandmulQt2!(A,row,k, alg="SVD")
+        end
+
+        (k==A.no_tiles) && break
+
+        LQandmulQt1!(A,k, alg="SVD")
+        for col in k+2:A.no_tiles 
+            LQandmulQt2!(A,k,col, alg="SVD")
+        end
+    end
+    finish_algo!(A, kend, alg="SVD")
+end
+
+
+function QRandmulQt1!(A::TiledMatrix, k::Int; alg="QR")
+    QR1!(A,k)
+    Qtapply1_par!(A, k)
+    alg=="SVD" && triu!(A,k,k)
+end
+
+function QRandmulQt2!(A::TiledMatrix, row::Int, k::Int; alg="QR")
+    QR2!(A,row,k)
+    Qtapply2_par!(A,row,k)
+    alg=="SVD" && ((A.TileViews[row,k]).=0)
+end
+
+function LQandmulQt1!(A::TiledMatrix, k::Int; alg="QR")
+    LQ1!(A,k) 
+    LQtapply1_par!(A,k)
+    alg=="SVD" && tril!(A,k,k+1)
+end
+
+function LQandmulQt2!(A::TiledMatrix, k::Int, col::Int; alg="QR")
+    LQ2!(A,k,col)
+    LQtapply2_par!(A, k,col)
+    alg=="SVD" && (A.TileViews[k,col].=0)
+end
+
+function verify_kerneldims(A::GeneralTiledMatrix)
+    if A.m != get_kernel_dims(applyQR1!)[1]
+        error("Kernels compiled at wrong size, re-define TILE_SIZE1 and TILE_SIZE2 and recompile kernels.")
+    end
+end
+
+finish_algo!(::TiledMatrix, ::Int;alg="QR") = nothing
+
+########################################
+# including communication CPU-GPU ##
+########################################
+
+
+
+function QRandmulQt1!(A::LargeTiledMatrix, k::Int,prevR::Bool,currentR::Bool, zerofactor::Bool)
+    if (k>1 && currentR)
+        getandset_first!(A, k-1,k, prevR, currentR )
+    elseif !currentR
+        getandset_first!(A, k,k, prevR, currentR )
+    end 
+    CUDA.synchronize()
+    @sync begin
+        #Threads.@spawn CUDA.@sync ((k>1) && get_tilerow(A,k-1,A.no_tiles ,prevR, false ))
+        Threads.@spawn begin
+            CUDA.@sync begin
+                if (k+Int(!currentR)<A.no_tiles)
+                    recycle_tilerow(A, k, k+1+Int(!currentR), currentR, false, false)
+                end
             end
         end
-    end    
-end
-
-function Blockbidiag_nonpar!(A,T) 
-
-    for k in 1:A.no_tiles
-        QR1!(A,T,k)                
-        Qtapply1_blocks!(A, T, k)
-        triu!(A,k,k)
-
-        for row in k+1:A.no_tiles
-            QR2!(A,T,row,k)
-            Qtapply2_blocks!(A,T,row,k)
-            A.TileViews[row,k].=0
-        end
-
-        (k==A.no_tiles) && break
-
-        LQ1!(A,T,k) 
-        LQtapply1_blocks!(A,T,k)
-        tril!(A,k,k+1)
-
-        for col in k+2:A.no_tiles 
-            LQ2!(A,T,k,col)
-            LQtapply2_blocks!(A, T, k, col)
-            A.TileViews[k,col].=0
+            
+        Threads.@spawn begin
+            CUDA.@sync begin
+                QR1!(A,k)
+                Qtapply1_par!(A, k)
+                zerofactor && triu!(A,1)
+            end
         end
     end
-
+    finish_recycle!(A)
+    CUDA.synchronize()
 end
 
-function Blockbidiag!(A,T) 
+QRandmulQt1!(A::LargeTiledMatrix, k::Int; alg="QR") = QRandmulQt1!(A, k, alg=="QR",true, alg=="SVD")
+LQandmulQt1!(A::LargeTiledMatrix, k::Int; alg="QR") = QRandmulQt1!(A, k, true,false, alg=="SVD")
 
-    for k in 1:A.no_tiles
-        QR1!(A,T,k)              
-        Qtapply1_blockspar!(A, T, k)
-        triu!(A,k,k)
 
-        for row in k+1:A.no_tiles
-            QR2!(A,T,row,k)
-            Qtapply2_blockspar!(A,T,row,k)
-            A.TileViews[row,k].=0
+function QRandmulQt2!(A::LargeTiledMatrix, row::Int, k::Int, zerofactor::Bool) 
+    @sync begin
+        Threads.@spawn begin
+            CUDA.@sync begin
+                if (row>k+1)
+                    (get_tilerow(A,k,row-1 ,true, false )) 
+                end
+            end
+        end 
+
+        Threads.@spawn begin
+            CUDA.@sync begin
+                if (row<A.no_tiles)
+                    recycle_tilerow(A, k, row+1, true, false, false)
+                else
+                    push!(A.Rows, TileRow(true, k, 0, A.Rows[2].RowTile, A.Rows[2].Tau))
+                end
+            end
         end
 
-        (k==A.no_tiles) && break
-
-        LQ1!(A,T,k) 
-        LQtapply1_blockspar!(A,T,k)
-        tril!(A,k,k+1)
-
-        for col in k+2:A.no_tiles 
-            LQ2!(A,T,k,col)
-            LQtapply2_blockspar!(A, T, k,col)
-            A.TileViews[k,col].=0
+        Threads.@spawn begin
+            CUDA.@sync begin
+                QR2!(A,row,k)
+                Qtapply2_par!(A,row,k)
+                zerofactor && (get_view_first(A,4).=0)
+            end
         end
     end
-
+    finish_recycle!(A)
+    if (A.no_tiles==row)
+        get_tilerow(A,k,row ,true, false )
+    end
+    CUDA.synchronize()
 end
 
+QRandmulQt2!(A::LargeTiledMatrix, row::Int, k::Int; alg="QR") = QRandmulQt2!(A, row, k, alg=="SVD") 
 
-#=tilesize=3
-no_blocks=3
-backend=KernelAbstractions.get_backend(CUDA.randn(2))
-T=Float32
+function LQandmulQt2!(A::LargeTiledMatrix, k::Int, col::Int, zerofactor::Bool) 
+    @sync begin
+        Threads.@spawn begin
+            CUDA.@sync begin
+                if (col>k+2)
+                    get_tilerow(A,k,col-1 ,false, false )
+                end
+            end
+        end 
 
-Tau=Array{CuArray}(undef, no_blocks,no_blocks)
-for i in 1:no_blocks
-    for j in 1:no_blocks
-        Tau[i,j]=KernelAbstractions.zeros(backend, T, tilesize)
+        Threads.@spawn begin
+            CUDA.@sync begin
+                if (col<A.no_tiles)
+                    recycle_tilerow(A, k, col+1, false, false, false)
+                else
+                    push!(A.Rows, TileRow(false, k, 0, A.Rows[2].RowTile, A.Rows[2].Tau))
+                end
+            end
+        end
+
+        Threads.@spawn begin
+            CUDA.@sync begin
+                QR2!(A,k,col)
+                Qtapply2_par!(A,k,col)
+                zerofactor && (get_view_first(A,4).=0)
+            end
+        end
+    end
+    finish_recycle!(A)
+    if (A.no_tiles==col)
+        get_tilerow(A,k,col ,false, false )
+    end
+    CUDA.synchronize()
+end
+LQandmulQt2!(A::LargeTiledMatrix, k::Int, col::Int; alg="QR") = LQandmulQt2!(A, k,col, alg=="SVD") 
+
+function getandset_first!(A::LargeTiledMatrix, k::Int,k2::Int, prevR::Bool, nextR::Bool )
+    temp=A.Rows[3]
+    A.Rows[3]=A.Rows[1]
+    A.Rows[1]=temp
+    temp=A.Rows[1].RowTile
+    @sync begin
+        Threads.@spawn begin
+            CUDA.@sync begin
+                recycle_tilerow(A, k2, k2+Int(!nextR),nextR,true, prevR!=nextR )
+            end
+        end
+        Threads.@spawn begin
+            CUDA.@sync begin
+                get_tilerow(A, k, k+Int(!prevR), prevR, false)
+            end
+        end
+        Threads.@spawn begin
+            CUDA.@sync begin
+                if (prevR!=nextR)
+                    mytranspose!(view(temp, 1:A.n, 1:A.m),view(A.Rows[3].RowTile, 1:A.n, A.m.+(1:A.m)), ndrange=(A.n,A.m))
+                end
+            end
+        end
     end
 end
 
-A=rand!(allocate(backend, T,tilesize*no_blocks, tilesize*no_blocks))
-
-
-
-    testmatrix=copy(A)
-    refmatrix=copy(A)
-    Atile = TiledMatrix(testmatrix,tilesize,tilesize)
-    
-    
-    #Blockbidiag!(Atile,Tau)
-    #svdvals(testmatrix) ≈ svdvals(refmatrix)
-
-    T=Tau
-    A=Atile
-    k=1
-        QR1!(A,T,k)                
-        Qtapply1_blocks!(A, T, k)
-        
-        
-        norm(testmatrix,2) ≈ norm(refmatrix,2)
-
-        for row in k+1:A.no_tiles
-            QR2!(A,T,row,k)
-            Qtapply2_blocks!(A,T,k,row)
-            A.TileViews[row,k].=0
-            println(norm(testmatrix,2) ≈ norm(refmatrix,2))
+function finish_algo!(A::LargeTiledMatrix, k::Int, lastR::Bool)
+    @sync begin
+        Threads.@spawn begin
+            CUDA.@sync begin
+                get_tilerow(A, k, k+Int(!lastR), lastR, true)
+            end
+            
         end
-        
-        (k==A.no_tiles)
+        #Threads.@spawn begin
+            #get_tilerow(A, k, A.no_tiles, R, false)
+        #end
+    end
+end
 
-        LQ1!(A,T,k) 
-        LQtapply1_blocks!(A,T,k)
-        
+finish_algo!(A::LargeTiledMatrix, k::Int; alg="QR") = finish_algo!(A::LargeTiledMatrix, k::Int, (alg=="QR" || k ==A.no_tiles))
 
-        norm(testmatrix,2) ≈ norm(refmatrix,2)
 
-        for col in k+2:A.no_tiles 
-            LQ2!(A,T,col,k)
-            LQtapply2_blocks!(A, T, col, k)
-            A.TileViews[col,k].=0
-            println(norm(testmatrix,2) ≈ norm(refmatrix,2))
+########################################
+# combined ##
+########################################
+
+
+function OOC_alg!(A::Matrix, f::Function; kswitch=10, mydims2d=false,tilesize=32,tilefactor=1, backend=KernelAbstractions.get_backend(CUDA.randn(2)))
+    n=size(A,1)
+    no_blocks= Int(n/tilesize)
+    if (n>(kswitch*tilesize))
+        Atile = LargeTiledMatrix(A, backend, tilesize*no_blocks, tilesize, no_blocks, tiledim2d= mydims2d ? Int(tilesize/tilefactor) : 0) 
+        f(Atile;kend=no_blocks-kswitch)
+        if (kswitch>0) 
+            Acu=CuArray(A[(n-kswitch*tilesize+1):n,(n-kswitch*tilesize+1):n])
         end
-    =#
+    else
+        Acu = CuArray(A)
+    end
+    CUDA.synchronize()
+    if (kswitch>0)
+        Acutile=TiledMatrix(Acu,tilesize,tilesize, tiledim2d= mydims2d ? Int(tilesize/tilefactor) : 0)
+        f(Acutile)
+        copyto!(view(A,(n-min(kswitch,no_blocks)*tilesize+1):n,(n-min(kswitch,no_blocks)*tilesize+1):n), Array(Acu))    
+    end  
+    CUDA.synchronize()
+end
 
- 
+OOC_QR!(A::Matrix; kswitch=10, mydims2d=false,tilesize=32,tilefactor=1, backend=KernelAbstractions.get_backend(CUDA.randn(2))) = OOC_alg!(A, tiled_QR!, kswitch=kswitch, mydims2d=mydims2d,tilesize=tilesize,tilefactor=tilefactor, backend=backend)
+OOC_Bidiag!(A::Matrix; kswitch=10, mydims2d=false,tilesize=32,tilefactor=1, backend=KernelAbstractions.get_backend(CUDA.randn(2))) = OOC_alg!(A, Blockbidiag!, kswitch=kswitch, mydims2d=mydims2d,tilesize=tilesize,tilefactor=tilefactor, backend=backend)
+
+function OOC_SVD!(A::Matrix,; kswitch=10, mydims2d=false,tilesize=32,tilefactor=1, backend=KernelAbstractions.get_backend(CUDA.randn(2)))
+    OOC_Bidiag!(A, kswitch=kswitch, mydims2d=mydims2d,tilesize=tilesize,tilefactor=tilefactor, backend=backend)
+    bidiag=bidiagonalize(A,tilesize);
+    return bidiag #diag_lapack(bidiag)
+end
+
+function compile_kernels(;tilesize::Int=32, tilefactor::Int=1, tiledim2d::Bool=false)
+    global TILE_SIZE1 = tiledim2d ? (tilesize,tilesize) : tilesize
+    global TILE_SIZE2 = tiledim2d ? (tilesize,Int(tilesize/tilefactor)) : tilesize
+    global dims2d = tiledim2d
+    include(joinpath("..","src","QRkernelscompile.jl"))
+end

@@ -1,26 +1,44 @@
+struct TileRow
+    R::Bool
+    k::Int
+    l::Int
+    RowTile::AbstractArray
+    Tau::CuArray
+end
 
-struct TiledMatrix
-    TileViews::Array{SubArray}
-    ParentMatrix
+struct LargeTiledMatrix
+    A::AbstractArray
     M::Int
     N::Int
     m::Int
     n::Int
     no_tiles::Int
+    myrange1::Tuple
+    myrange2::Tuple
     backend
-    myrange::Tuple
-    QRkernel1!::KernelAbstractions.Kernel
-    QRkernel2!::KernelAbstractions.Kernel
-    Qapplykernel1!::KernelAbstractions.Kernel
-    Qapplykernel2!::KernelAbstractions.Kernel
-    Qtapplykernel1!::KernelAbstractions.Kernel
-    Qtapplykernel2!::KernelAbstractions.Kernel
-    Qtapplykernel1block!::KernelAbstractions.Kernel
-    Qtapplykernel2block!::KernelAbstractions.Kernel
-    triu!::KernelAbstractions.Kernel
+    Rows::Array{TileRow}
 end
 
-function TiledMatrix(A::AbstractArray{T, 2}, blocksize_m::Int, blocksize_n::Int) where T
+struct TiledMatrix
+    TileViews::Array{SubArray}
+    A::AbstractArray
+    Tau::Array{CuArray}
+    M::Int
+    N::Int
+    m::Int
+    n::Int
+    no_tiles::Int
+    myrange1::Tuple
+    myrange2::Tuple
+end
+
+GeneralTiledMatrix=Union{TiledMatrix, LargeTiledMatrix}
+
+########################################
+# GPU- only ##
+########################################
+
+function TiledMatrix(A::AbstractArray{T, 2}, blocksize_m::Int, blocksize_n::Int; tiledim2d::Int=0) where T
     if (blocksize_m!=blocksize_n) || size(A,1)!=size(A,2) || mod(size(A,1),blocksize_n)!=0 
         error("Not supported")
     end
@@ -32,18 +50,20 @@ function TiledMatrix(A::AbstractArray{T, 2}, blocksize_m::Int, blocksize_n::Int)
         end
     end
     backend=KernelAbstractions.get_backend(A)
-    return TiledMatrix(TileViews, A, size(A,1),size(A,2), blocksize_m,blocksize_n,
-        no_tiles, backend, (blocksize_n,1),
-        QR_unsafe_kernel!(backend,blocksize_n),
-        QR_unsafe_kernel2!(backend,blocksize_n),
-        applyQ_unsafe_kernel!(backend,blocksize_n),
-        applyQ_unsafe_kernel2!(backend,blocksize_n),
-        applyQt_unsafe_kernel!(backend,blocksize_n), 
-        applyQt_unsafe_kernel2!(backend,blocksize_n),
-        applyQt_unsafe_kernel_block!(backend,blocksize_n), 
-        applyQt_unsafe_kernel2_block!(backend,blocksize_n),
-        mytriu!(backend) 
-    )
+    Tau=Array{CuArray}(undef, no_tiles,no_tiles)
+    for i in 1:no_tiles
+        for j in 1:no_tiles
+            Tau[i,j]=KernelAbstractions.zeros(backend, T, blocksize_m)
+        end
+    end
+    if tiledim2d==0
+        range1=(blocksize_n,1)
+        range2= (blocksize_n,1)
+    else
+        range1=(blocksize_n,blocksize_n)
+        range2= (blocksize_n,tiledim2d)
+    end
+    return TiledMatrix(TileViews, A, Tau, size(A,1),size(A,2), blocksize_m,blocksize_n,  no_tiles,  range1, range2)
 end
 
 function tileview(A, gi, gj, N)
@@ -54,97 +74,112 @@ function tileview2(A, gi, gj, N)
     return view(A, (gi-1)*N.+(1:N),gj)
 end
 
-function hor_blocktileview(A::TiledMatrix, row, col)
-    return view(A.ParentMatrix, ((row-1)*A.m .+(1:A.m)),((col-1)*A.n .+1):A.N)
+function hor_blocktileview(A::GeneralTiledMatrix, row, col)
+    return view(A.A, ((row-1)*A.m .+(1:A.m)),((col-1)*A.n .+1):A.N)
 end
 
-function ver_blocktileview(A::TiledMatrix, row, col)
-    return view(A.ParentMatrix, ( ((row-1)*A.m .+1):A.M ),(col-1)*A.n .+(1:A.n))
+function ver_blocktileview(A::GeneralTiledMatrix, row, col)
+    return view(A.A, ( ((row-1)*A.m .+1):A.M ),(col-1)*A.n .+(1:A.n))
 end
 
+applyLQ1!(A,T;ndrange)=applyQR1!(A',T,ndrange=ndrange)
+applyLQ2!(A,B, T;ndrange)=applyQR2!(A',B', T,ndrange=ndrange)
+applyQt1L!(A,B,T;ndrange)=applyQt1!(A',B',T,ndrange=ndrange)
+applyQt2L!(A,B,C,T;ndrange)=applyQt2!(A',B',C', T,ndrange=ndrange)
+mytril!(A;ndrange)=mytriu!(A',ndrange=ndrange)
 
-function QR1!(A::TiledMatrix, T, k)
-    A.QRkernel1!(A.TileViews[k,k],T[k,k], ndrange=A.myrange)
+QR1!(A::TiledMatrix, k) = applyQR1!(A.TileViews[k,k],A.Tau[k,k], ndrange=A.myrange1) 
+Qtapply1!(A::TiledMatrix, k, col) = applyQt1!(A.TileViews[k,col], A.TileViews[k,k],A.Tau[k,k], ndrange=A.myrange2 )
+QR2!(A::TiledMatrix, row, k) =applyQR2!(A.TileViews[k,k], A.TileViews[row,k], A.Tau[row,k], ndrange=A.myrange1)
+
+Qtapply2!(A::TiledMatrix, k, row,col) = applyQt2!(A.TileViews[k,col],A.TileViews[row,col], A.TileViews[row,k], A.Tau[row,k], ndrange=A.myrange2 )
+
+LQ1!(A::TiledMatrix, k) =  applyLQ1!(A.TileViews[k,k+1],A.Tau[k,k],ndrange=A.myrange1)
+LQtapply1!(A::TiledMatrix, row,k) = applyQt1L!(A.TileViews[row,k+1], A.TileViews[k,k+1],A.Tau[k,k], ndrange=A.myrange2 )
+LQ2!(A::TiledMatrix, k, col)=applyLQ2!(A.TileViews[k,k+1], A.TileViews[k,col], A.Tau[col,k], ndrange=A.myrange1)
+
+LQtapply2!(A::TiledMatrix, T, k, row,col)=applyQt2L!(A.TileViews[row,k+1],A.TileViews[row,col], A.TileViews[k,col], A.Tau[col,k], ndrange=A.myrange2 )
+
+triu!(A::TiledMatrix,row,col) = mytriu!(A.TileViews[row,col],ndrange=(A.n,A.m))
+tril!(A::TiledMatrix,row,col) = mytril!(A.TileViews[row,col],ndrange=(A.n,A.m))
+
+Qtapply1_par!(A::TiledMatrix, k) = applyQt1!(hor_blocktileview(A, k, k+1), A.TileViews[k,k],A.Tau[k,k], ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]) )
+Qtapply2_par!(A::TiledMatrix, row,k) = applyQt2!(hor_blocktileview(A, k, k+1), hor_blocktileview(A, row, k+1),
+        A.TileViews[row,k], A.Tau[row,k] , ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]))
+
+LQtapply1_par!(A::TiledMatrix, k)= applyQt1L!(ver_blocktileview(A, k+1, k+1), A.TileViews[k,k+1],A.Tau[k,k], ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]) )
+LQtapply2_par!(A::TiledMatrix,  k,col) =applyQt2L!(ver_blocktileview(A, k+1, k+1), ver_blocktileview(A, k+1, col),
+        A.TileViews[k,col], A.Tau[col,k], ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]))
+
+
+########################################
+# including communication CPU-GPU ##
+########################################
+
+
+function LargeTiledMatrix(A::Matrix{T}, backend, matrixsize::Int, blocksize::Int, no_blocks::Int; tiledim2d::Int=0) where T
+    rows=[]
+    Tau= KernelAbstractions.zeros(backend, T, blocksize)
+    Row=KernelAbstractions.zeros(backend, T, blocksize, matrixsize)
+    copyto!(Row,copy(view(A,1:blocksize,1:matrixsize)))
+    push!(rows, TileRow(true, 1, 1, Row, Tau))
+    for i in 1:3
+        Tau= KernelAbstractions.zeros(backend, T, blocksize)
+        Row=KernelAbstractions.zeros(backend, T, blocksize, matrixsize)
+        push!(rows, TileRow(true, 1, 1, Row, Tau))
+    end
+
+    if tiledim2d==0
+        range1=(blocksize,1)
+        range2= (blocksize,1)
+    else
+        range1=(blocksize,blocksize)
+        range2= (blocksize,tiledim2d)
+    end
+    return LargeTiledMatrix(A, matrixsize, matrixsize, blocksize, blocksize, no_blocks, range1, range2, backend, rows)
 end
 
-function Qtapply1!(A::TiledMatrix, T, k, col)
-    A.Qtapplykernel1!(A.TileViews[k,col], A.TileViews[k,k],T[k,k], ndrange=A.myrange )
-end
-
-function QR2!(A::TiledMatrix, T, row, k)
-    A.QRkernel2!(A.TileViews[k,k], A.TileViews[row,k], T[row,k], ndrange=A.myrange)
-end
-
-function Qtapply2!(A::TiledMatrix, T, k, row,col)
-    A.Qtapplykernel2!(A.TileViews[k,col],A.TileViews[row,col], A.TileViews[row,k], T[row,k], ndrange=A.myrange )
-end
-
-function LQ1!(A::TiledMatrix, T, k)
-    A.QRkernel1!(A.TileViews[k,k+1]',T[k,k], ndrange=A.myrange)
-end
-
-function LQtapply1!(A::TiledMatrix, T, row,k)
-    A.Qtapplykernel1!(A.TileViews[row,k+1]', A.TileViews[k,k+1]',T[k,k], ndrange=A.myrange )
-end
-
-function LQ2!(A::TiledMatrix, T, k, col)
-    A.QRkernel2!(A.TileViews[k,k+1]', A.TileViews[k,col]', T[col,k], ndrange=A.myrange)
-end
-
-function LQtapply2!(A::TiledMatrix, T, k, row,col)
-    A.Qtapplykernel2!(A.TileViews[row,k+1]',A.TileViews[row,col]', A.TileViews[k,col], T[col,k], ndrange=A.myrange )
-end
-
-#TODO: make the below into block kernels
-
-function Qtapply1_blocks!(A::TiledMatrix, T, k)
-    for col in k+1:A.no_tiles
-        A.Qtapplykernel1!(A.TileViews[k,col], A.TileViews[k,k],T[k,k], ndrange=A.myrange )
+function recycle_tilerow(Atile::LargeTiledMatrix, k::Int, l::Int, R::Bool, first::Bool, exclfirst::Bool)
+    Row= Atile.Rows[first ? 1 : 2].RowTile
+    if R
+        copyto!(getblockview(Atile, first ? 1 : 2 , k, exclfirst), copy(hor_blocktileview(Atile, l, k + Int(exclfirst)) ))
+    else   
+        #TODO: implement copy for transpose (note the copy is on GPU, so not a real performance bottleneck)
+        copyto!(getblockview(Atile, first ? 1 : 2 , k, exclfirst), copy(ver_blocktileview(Atile,k+ Int(exclfirst),l)') )
+    end
+    if first
+        Atile.Rows[1]= TileRow(R, k, l, Row, Atile.Rows[ 1 ].Tau)
+    else
+        push!(Atile.Rows, TileRow(R, k, l, Row, Atile.Rows[ 2].Tau))
     end
 end
 
-function Qtapply2_blocks!(A::TiledMatrix, T, row,k)
-    for col in k+1:A.no_tiles
-        A.Qtapplykernel2!(A.TileViews[k,col],A.TileViews[row,col], A.TileViews[row,k], T[row,k] , ndrange=A.myrange)
+function finish_recycle!(Atile::LargeTiledMatrix)
+    deleteat!(Atile.Rows,2)
+end
+
+function get_tilerow(A::LargeTiledMatrix, k::Int, l::Int, R::Bool, first::Bool)
+    if R
+        (hor_blocktileview(A,l,k) .= Array( getblockview(A, first ? 1 : 3 , k, false)))
+    else   
+         #TODO: implement copy for transpose (note the copy is on GPU, so not a real performance bottleneck)
+        ver_blocktileview(A,k,l) .= Array(getblockview(A, first ? 1 : 3 , k, false)')
     end
 end
 
-function LQtapply1_blocks!(A::TiledMatrix, T, k)
-    for row in k+1:A.no_tiles
-        A.Qtapplykernel1!(A.TileViews[row,k+1]', A.TileViews[k,k+1]',T[k,k], ndrange=A.myrange )
-    end
+function get_view_first(A::LargeTiledMatrix, idx)
+    return view(A.Rows[idx].RowTile, :, 1:A.m)
+end
+function get_view_exclfirst(A::LargeTiledMatrix, idx::Int, k)
+    return view(A.Rows[idx].RowTile, :,A.m + 1 : A.m * (A.no_tiles-k+1))
 end
 
-function LQtapply2_blocks!(A::TiledMatrix, T, k, col)
-    for row in k+1:A.no_tiles
-        A.Qtapplykernel2!(A.TileViews[row,k+1]',A.TileViews[row,col]', A.TileViews[k,col]', T[col,k] , ndrange=A.myrange)
-    end
-end
+triu!(A::LargeTiledMatrix,idx) = mytriu!(get_view_first(A,idx),ndrange=(A.n,A.m))
 
+QR1!(A::LargeTiledMatrix, k) = applyQR1!(A.Rows[1].RowTile, A.Rows[1].Tau, ndrange=A.myrange1)
+QR2!(A::LargeTiledMatrix, row, k) =applyQR2!(A.Rows[1].RowTile, A.Rows[4].RowTile, A.Rows[4].Tau, ndrange=A.myrange1)
 
-function triu!(A::TiledMatrix,row,col)
-    A.triu!(A.TileViews[row,col],ndrange=(A.n,A.m))
-end
+Qtapply1_par!(A::LargeTiledMatrix, k) = applyQt1!(get_view_exclfirst(A,1,k), A.Rows[1].RowTile, A.Rows[1].Tau, ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]) )
+Qtapply2_par!(A::LargeTiledMatrix, row,k) = applyQt2!(get_view_exclfirst(A,1,k), get_view_exclfirst(A,4,k), A.Rows[4].RowTile, A.Rows[4].Tau, ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]))
 
-
-function tril!(A::TiledMatrix,row,col)
-    A.triu!(A.TileViews[row,col]',ndrange=(A.n,A.m))
-end
-
-function Qtapply1_blockspar!(A::TiledMatrix, T, k)
-    A.Qtapplykernel1!(hor_blocktileview(A, k, k+1), A.TileViews[k,k],T[k,k], ndrange=(A.m*(A.no_tiles-k),1) )
-end
-
-function Qtapply2_blockspar!(A::TiledMatrix, T, row,k)
-    A.Qtapplykernel2!(hor_blocktileview(A, k, k+1), hor_blocktileview(A, row, k+1),
-        A.TileViews[row,k], T[row,k] , ndrange=(A.m*(A.no_tiles-k),1))
-end
-
-function LQtapply1_blockspar!(A::TiledMatrix, T, k)
-    A.Qtapplykernel1!(ver_blocktileview(A, k+1, k+1)', A.TileViews[k,k+1]',T[k,k], ndrange=(A.m*(A.no_tiles-k),1) )
-end
-
-function LQtapply2_blockspar!(A::TiledMatrix, T, k,col)
-    A.Qtapplykernel2!(ver_blocktileview(A, k+1, k+1)', ver_blocktileview(A, k+1, col)',
-        A.TileViews[k,col]', T[col,k] , ndrange=(A.m*(A.no_tiles-k),1))
-end
+getblockview(A::LargeTiledMatrix, idx::Int , k::Int, exclfirst::Bool) = view(A.Rows[idx].RowTile, :, (1 + (Int(exclfirst)*A.n)):(A.n * (A.no_tiles - k + 1) ) )

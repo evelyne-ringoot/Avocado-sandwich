@@ -2,14 +2,13 @@
 #SBATCH -J SVD_TEST
 #SBATCH -o SVD_TEST_%j.out
 #SBATCH -e SVD_TEST_%j.err
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:volta:1
 #SBATCH --nodes=1
-#SBATCH --mem=1T
-#SBATCH --ntasks=36
+#SBATCH --ntasks=8
 #SBATCH --cpus-per-task=1
-#SBATCH --time=2:00:00
+#SBATCH --time=4:00:00
 #SBATCH --exclusive
-module load julia
+module load cuda
 
     echo ""
     echo " Nodelist:= " $SLURM_JOB_NODELIST
@@ -20,6 +19,6 @@ module load julia
 
 date
 echo "starting"
-~/julia/.julia --project=~ runbenchmarks.jl
+~/julia/bin/julia --t 4 --project=~ Avocado/KAbasedSVD/benchmark/runbenchmark.jl $1
 echo "finished"
 date
