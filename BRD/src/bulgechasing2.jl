@@ -1,4 +1,100 @@
-using KernelAbstractions,CUDA,  BenchmarkTools, Random, LinearAlgebra
+using LinearAlgebra, BenchmarkTools, Base.@Threads
+
+
+function QR_QMUL(A,idx1, idx2, n,ts)
+    idx2=max(1,idx2.start):min(n,idx2.stop)
+    idx1=max(1,idx1.start):min(n,idx1.stop)
+    q,_ =qr!(view(A,idx1,idx2.start:min(idx2.start+ts-1,n)))
+    view(A,idx1, idx2.start+ts:idx2.stop) .= q' * view(A,idx1, idx2.start+ts:idx2.stop)
+    triu!(view(A,idx1,idx2.start:min(idx2.start+ts-1,n)))
+    return;
+end
+
+function LQ_QMUL(A,idx1, idx2, n, ts)
+    idx2=max(1,idx2.start):min(n,idx2.stop)
+    idx1=max(1,idx1.start):min(n,idx1.stop)
+    _, q =lq!(view(A,idx1.start:min(idx1.start+ts-1,n),idx2))
+    view(A,idx1.start+ts:idx1.stop, idx2) .=   view(A,idx1.start+ts:idx1.stop, idx2) * q'
+    tril!(view(A,idx1.start:min(idx1.start+ts-1,n), idx2))
+    return;
+end
+
+function bidiag!(A, bandwidth;factor=4, kernelsizeinit=32)
+    (m,n) = size(A)
+    cbw=bandwidth
+    while cbw>1
+        tbw=max(1,div(cbw,factor))
+        ts=tbw
+        kernelsize=max(4,ceil(Int,kernelsizeinit/tbw))
+        for sweeprow=1:kernelsize*ts:n-1-ts #row to cancel
+            for iter=0: n #propagation idx
+                for kernelidx=1:kernelsize
+                    row=sweeprow + (kernelidx)*ts+cbw*(iter+1-2kernelidx) 
+                    if ((iter>=(2kernelidx-2)) && row<n)
+                        rowstart= (iter==(2kernelidx-2)) ? row+cbw-tbw : row
+                        LQ_QMUL(A,rowstart:row+2cbw-1, row+cbw:row+2cbw-1, n,ts)
+                        QR_QMUL(A, row+cbw:row+2cbw-1,row+cbw:row+3cbw-1,n,ts)
+                    end
+                end
+            end
+            
+        end
+        cbw=tbw
+    end
+    return A;
+end
+
+function bidiag_async!(A, bandwidth;factor=4, kernelsizeinit=32)
+    (m,n) = size(A)
+    cbw=bandwidth
+    while cbw>1
+        tbw=max(1,div(cbw,factor))
+        ts=tbw
+        kernelsize=max(4,ceil(Int,kernelsizeinit/tbw))
+        for sweeprow=1:kernelsize*ts:n-1-ts #row to cancel
+            for iter=0: n #propagation idx
+                @sync begin
+                    Threads.@spawn for kernelidx=1:kernelsize
+                        row=sweeprow + (kernelidx)*ts+cbw*(iter+1-2kernelidx) 
+                        if ((iter>=(2kernelidx-2)) && row<n)
+                            rowstart= (iter==(2kernelidx-2)) ? row+cbw-tbw : row
+                            LQ_QMUL(A,rowstart:row+2cbw-1, row+cbw:row+2cbw-1, n,ts)
+                            QR_QMUL(A, row+cbw:row+2cbw-1,row+cbw:row+3cbw-1,n,ts)
+                        end
+                    end
+                end
+            end
+            
+        end
+        cbw=tbw
+    end
+    return A;
+end
+
+
+
+
+#testing for correctness
+
+function verify_bidiag(A)
+    Acopy=copy(A)
+    (m,n) = size(A)
+    Acopy[1:m+1:end].=0
+    Acopy[m+1:m+1:end].=0
+    return maximum(Acopy)
+end
+
+for n in [64,512,1024]
+  for bw in [4,16,64]
+    A = triu(tril(rand(n,n),bw))
+    sol=bidiag_async!(copy(A),bw)
+    print(verify_bidiag(sol) ≈ 0 )
+    print(svdvals(copy(A)) ≈ svdvals(sol))
+  end
+end
+
+
+
 
 ####################################
 # LAPACK WRAPPER
@@ -54,8 +150,9 @@ end
 end
 
 ####################################
-# BRD functions
+# old
 ####################################
+#=
 function QR_row!(A, startindex, lastindex, indexgap)
     qr!(view(A,startindex:lastindex, startindex+indexgap:lastindex)')
     tempcopy=view(A,startindex:lastindex, startindex+indexgap:lastindex)'*I
@@ -143,6 +240,25 @@ function bidiagonalizerec(A, bandwidth)
     end
     return;
 end
+
+function bidiagonalizerec2(A, bandwidth, factor)
+    (m,n) = size(A)
+    tbw=bandwidth
+    cbw=bandwidth
+
+    while tbw>1
+        tbw=round(Int,tbw/factor)
+        ts=bw
+        for row=1:ts:n-1-ts
+            LQ_QMUL(A,row:row+cbw+ts-1, row+tbw:row+cbw+ts-1, n,ts)
+            QR_QMUL(A, row+ts:row+ts+cbw,row+tbw:row+2*cbw+ts,n,ts)
+            LQ_QMUL(A, row+ts:row+2*cbw+ts-1,row+ts+cbw:row+2*cbw+ts-1,n,ts)
+        end
+        cbw=tbw
+    end
+    return;
+end
+
 function bidiagonalize(A, bandwidth)
     (m,n) = size(A)
     tbw=1
@@ -160,80 +276,128 @@ bsdc(A)=LAPACK.bdsdc!('U', 'N', diag(A), diag(A,1));
 bdsqr(A, Vt, U, C)=LAPACK.bdsqr!('U', diag(A), diag(A,1), Vt, U, C);
 cusvd(A)=svdvals!(A,alg=CUDA.CUSOLVER.QRAlgorithm())
 
-####################################
-#timing functions
-####################################"
-function mycubelapsed(f, A, args...;kwargs...)
-        CUDA.@sync f(copy(A),args...;kwargs...)
-        t=0.0
-        k=0
-        while (t<1)
-            B=copy(A)
-            CUDA.synchronize()
-            t+= @elapsed (CUDA.@sync f(B,args...;kwargs...))
-            CUDA.synchronize()
-            k+=1
-        end
-    return t/k
-end
-function mybelapsed(f, A, args...;kwargs...)
-    f(copy(A),args...;kwargs...)
-    t=0.0
-    k=0
-    while (t<1)
-        B=copy(A)
-        t+= @elapsed (f(B,args...;kwargs...))
-        k+=1
-    end
-return t/k
-end
 
 
-
+=#
 ####################################
 #benchmarking
 ####################################"
-n_values=[1024,2048,4096,8192]
-bw_values=[4,16,64,256]
-timings=zeros(length(n_values),length(bw_values),5)
-timings_bidiag=zeros(length(n_values))
+n_values=[1024,2048,4096]
+bw_values=[2,4,16,64]
+timings=zeros(length(n_values),length(bw_values),3)
+
 
 for (iter_n,n) in enumerate(n_values)
     for (iter_bw,bw) in enumerate(bw_values)
         println((n,bw))
         A = triu(tril(rand(n,n),bw))
-        B=Float32.(CuArray(A))
-        #timings[iter_n, iter_bw, 1] = mybelapsed(bidiagonalizeold, A, bw)
-        #timings[iter_n, iter_bw, 2] = mybelapsed(bidiagonalizerecold, A, bw)
-        #timings[iter_n, iter_bw, 3] = mybelapsed(bidiagonalize, A, bw)
-        timings[iter_n, iter_bw, 4] = mybelapsed(bidiagonalizerec, A, bw)
-        timings[iter_n, iter_bw, 5] = mybelapsed(gbbrd!,A, bw)
+        timings[iter_n, iter_bw,1] = @belapsed bidiag!( $A, $bw)
+        A = triu(tril(rand(n,n),bw))
+        timings[iter_n, iter_bw, 2] = @belapsed gbbrd!($A, $bw)
+        A = triu(tril(rand(n,n),bw))
+        timings[iter_n, iter_bw,3] = @belapsed bidiag_async!( $A, $bw)
     end
-    A=Float32.(CUDA.randn(n,n))
-    timings_bidiag[iter_n]=mycubelapsed(cusvd,A)
 end
 
 
 using Plots
 
-iter=4
-titles=["BRD QR bulgechasing - naive elementwise"; "BRD QR bulgechasing - blocked";
-"BRD QR bulgechasing - cache efficient"; "BRD QR bulgechasing - cache efficient blocked" ]
+titles=["BRD QR bulgechasing - hiearchical (sync)";  "LAPACK GBBRD" ]
 xaxis=n_values
 xaxist=string.(n_values)
 yaxis=[0.001, 0.01, 0.1, 1,10, 60, 300 ]
 yaxist=["1 ms","10ms","0.1s","1s", "10s", "1min", "5min"]
-plot(n_values, timings[:,:,iter], labels= "bandwith ".*["4" "16" "64" "256" "1024"] , lw=2, markershape=:circle, markerstrokewidth=0, markersize=3, color=[1 2 3 4 5])
-plot!(n_values,timings[:,:,5], labels= "", lw=1, linestyle=:dash, markerstrokewidth=0, markersize=0, color=[1 2 3 4 5])
-plot!([128,128],[1,1], labels= "LAPACK GBBRD", lw=1, linestyle=:dash, markerstrokewidth=0, markersize=0, color="black")
-plot!(n_values,timings_bidiag, labels= "CUSOLVER SVD total time", lw=5, markerstrokewidth=0, markersize=0, color="grey")
-plot!(xaxis=:log2,  yaxis=:log10,legend=:topleft,  yticks=(yaxis,yaxist), xticks=(xaxis,xaxist), xlabel= "matrix size nxn", ylabel= "Execution time", title=titles[iter], dpi=1000)
+plot(n_values, timings[:,:,1], labels= "bandwith ".*string.(bw_values') , lw=2, markershape=:circle, markerstrokewidth=0, markersize=3, color=[1 2 3 4])
+plot!(n_values,timings[:,:,2], labels= "", lw=1, linestyle=:dash, markerstrokewidth=0, markersize=0, color=[1 2 3 4])
+plot!([128,128],[1,1], labels= titles[2], lw=1, linestyle=:dash, markerstrokewidth=0, markersize=0, color="black")
+plot!([128,128],[1,1], labels= titles[1],  lw=2, markershape=:circle, markerstrokewidth=0, markersize=3, color="black")
+plot!(xaxis=:log2,  yaxis=:log10,legend=:topleft,  xlabel= "matrix size nxn", ylabel= "Execution time", dpi=1000)
 
 
-#####################################
-#=
-    #U, Vt, C = Matrix{Float64}(I, n, n), Matrix{Float64}(I, n, n), Matrix{Float64}(I, n, n)
-    #timings_bidiag[iter_n,1]=mybelapsed(bsdc,A)
-    #timings_bidiag[iter_n,2]=mybelapsed(bdsqr,A, Vt, U, C)
+####################################
+#memory barriers
+####################################"
 
-=#
+function LinearAlgebra.qr!(A::AbstractMatrix{T}, τ::AbstractVector{T}) where {T}
+    require_one_based_indexing(A)
+    m, n = size(A)
+    for k = 1:min(m - 1 + !(T<:Real), n)
+        x = view(A, k:m, k)
+        τk = LinearAlgebra.reflector!(x)
+        τ[k] = τk
+        LinearAlgebra.reflectorApply!(x, τk, view(A, k:m, k + 1:n))
+    end
+    QR(A, τ)
+end
+
+function tasksync(channellist, tasknb,n)
+    if tasknb>1
+        take!(channellist[tasknb-1])
+        printf("yes"*string(task))
+    end
+    put!(channellist[tasknb],true)
+    if tasknb==1
+        take!(channellist[n])
+    else
+        take!(channellist[tasknb-1])
+    end
+    if tasknb<n
+        put!(channellist[tasknb],true)
+    end
+end
+
+create_channellist(n) = [Channel{Bool}(1) for i=1:n]
+n=100000
+mylist=[rand(10,10) for i=1:n]
+mylist2=[zeros(10) for i=1:n]
+
+
+using Polyester
+@benchmark begin
+    for i=1:n
+        qr!($mylist[i],$mylist2[i])
+    end
+end
+
+@benchmark begin
+    qr!()
+end
+
+@benchmark begin
+    @sync begin
+        Threads.@spawn for i=1:n
+            qr!($mylist[i],$mylist2[i])
+        end
+    end
+end
+
+
+@benchmark begin
+    for i=1:8:n
+        @sync begin
+            Threads.@spawn for j=0:7
+                qr!($mylist[i+j],$mylist2[i+j])
+            end
+        end
+    end
+end
+
+@benchmark begin
+    @sync begin
+        Threads.@spawn for j=0:7
+            for i=1:8:n
+                qr!($mylist[i+j],$mylist2[i+j])
+            end
+        end
+    end
+end
+
+
+
+@benchmark begin
+    for j in 1:8:n
+        @batch for i=j:j+7
+            qr!($mylist[i],$mylist2[i])
+        end
+    end
+end
