@@ -30,7 +30,7 @@ Matrix multiply:
 
 # Performance benchmarking
 
-Benchmarking correctly is complex and comprehensive solutions are available (Google Benchmark, Benchmarktools.jl). The minimal benchmark used here aims to address GPU saturation on performance and provide a consistent benchmark over Julia and C++.  We use the following technique, taking a minimum over different of numruns (2,20). 
+Benchmarking correctly is complex and comprehensive solutions are available (Google Benchmark, Benchmarktools.jl). The minimal benchmark used here aims to address GPU saturation on performance and provide a consistent benchmark over Julia and C++.  We use the following technique as per https://github.com/accelerated-computing-class/lab8, taking a minimum over different of numruns (2,20). 
 
 ```
 function benchmark_ms(numruns,myfunc, args...;kwargs...)
