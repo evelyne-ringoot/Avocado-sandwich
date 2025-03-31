@@ -5,11 +5,11 @@ IndexGPUArray{T} = Union{AbstractGPUArray{T},
 
 
 function LinearAlgebra.triu!(A::IndexGPUArray{T}, d::Integer = 0) where T
-    @kernel function triu_kernel!(_A, _d)
+    @kernel cpu=false  inbounds=true unsafe_indices=false function triu_kernel!(_A, _d)
       I = @index(Global, Cartesian)
       i, j = Tuple(I)
       if j < i + _d
-        @inbounds _A[i, j] = zero(T)
+        _A[i, j] = zero(T)
       end
     end
     triu_kernel!(get_backend(A))(A, d; ndrange = size(A))
@@ -19,9 +19,9 @@ function LinearAlgebra.triu!(A::IndexGPUArray{T}, d::Integer = 0) where T
   function Base.fill!(A::IndexGPUArray{T}, x) where T
     isempty(A) && return A
 
-    @kernel function fill_kernel!(a, val)
+    @kernel cpu=false  inbounds=true unsafe_indices=false function fill_kernel!(a, val)
         idx = @index(Global, Linear)
-        @inbounds a[idx] = val
+        a[idx] = val
     end
 
     # ndims check for 0D support

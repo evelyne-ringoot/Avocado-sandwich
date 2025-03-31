@@ -9,91 +9,69 @@ include("../src/qr_kernels.jl")
 include("../src/datacomms.jl")
 include("../src/tiledalgos.jl")
 
-#=
+function benchmark_ms( myfunc, args...;kwargs...)
+    elapsed=0.0
+    best=100000
+    i=0
+    while(elapsed<200.0 || i<2)
+        KernelAbstractions.synchronize(backend)
+        start = time_ns()
+        for i=1:numruns
+            myfunc(args...;kwargs...)
+        end
+        KernelAbstractions.synchronize(backend)
+        endtime = time_ns()
+        thisduration=(endtime-start)/1e6
+        elapsed+=thisduration
+        best = min(thisduration/numruns,best)
+        i+=1
+    end
+    return best
+end
+
 elty=Float32
-sizes=[64,128,512,1024,2048,4096]
+sizes=[32,64,128,256,512,1024,2048,4096,8192,16384]
+timings=ones(2,length(sizes))*1000000
+errors=zeros(length(sizes))
+inputs=[CUDA.randn(size_i, size_i) for size_i in sizes]
 
+for (i,size_i) in enumerate(sizes[1:8])
+    aout=OOC_SVD!(copy(inputs[i]), backend,kswitch=8)
+    aref= svdvals!(copy(inputs[i]))
+    KernelAbstractions.synchronize(backend)
+    errors[i]= norm(aout-aref)/size_i
+end
 
-println( " size    RRMSE    time (ms)  vs CUSOLVER(%)  cutime(ms)  ");
-println(" ------  --------  --------  ---------------  ----------  ");
+for (i,size_i) in enumerate(sizes[1:9])
+    a=inputs[i]
+    timings[1,i] = min( benchmark_ms(svdvals!,a,  alg=CUDA.CUSOLVER.QRAlgorithm()), timings[1,i])
+end
+
+for (i,size_i) in enumerate(sizes[1:9])
+    a=inputs[i]
+    timings[1,i] = min( benchmark_ms(svdvals!,a,  alg=CUDA.CUSOLVER.QRAlgorithm()), timings[1,i])
+end
+
 for (i,size_i) in enumerate(sizes)
-    nbtiles=Int(size_i/TILESIZE)
-    A=CUDA.randn( elty,size_i, size_i)
-    Tau=CUDA.zeros(nbtiles,size_i)
-    Tau2=CUDA.zeros(size_i)
-    Tauc=CUDA.zeros(nbtiles,size_i)
-    Tau2c=CUDA.zeros(size_i)
-    dh = CUSOLVER.dense_handle()
-    buffersize= geqrf_buffersize(A)
-    buffer=CUDA.zeros(elty,buffersize)
-    Acpy=copy(A)
-    Acpy2=copy(A)
-    
-    mygeqrf!(Acpy, Tauc, nbtiles)
-    geqrf!(Acpy2, Tau2c, size_i, size_i, size_i,dh,buffer, buffersize)
-    CUDA.synchronize()
+    a=inputs[i]
+    timings[2,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=16), timings[2,i])
+end
 
-    mymatch = norm(triu!(abs.(Acpy) - abs.(Acpy2)))/norm(triu(abs.(Acpy2)))/sqrt(size_i)
-    t_cusolver = @belapsed (CUDA.@sync geqrf!($A, $Tau2, $size_i, $size_i, $size_i,$dh,$buffer, $buffersize)) gctrial=true evals=1 gcsample=false samples=1e5 seconds=2
-    t_KA = @belapsed (CUDA.@sync mygeqrf!($A, $Tau, $nbtiles)) gctrial=true evals=1 gcsample=false samples=1e5 seconds=2
-    t_cusolver = @belapsed (CUDA.@sync geqrf!($A, $Tau2, $size_i, $size_i, $size_i,$dh,$buffer, $buffersize)) gctrial=true evals=1 gcsample=false samples=1e5 seconds=2
-    t_KA = @belapsed (CUDA.@sync mygeqrf!($A, $Tau, $nbtiles)) gctrial=true evals=1 gcsample=false samples=1e5 seconds=2
-    @printf " %4d   %8.02e    %7.02f  %8.02f %% %10.02f \n" size_i mymatch t_KA*1000  t_cusolver/t_KA*100 1000*t_cusolver 
- 
+for (i,size_i) in enumerate(sizes)
+    a=inputs[i]
+    timings[2,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=16), timings[2,i])
+end
+
+
+
+
+println( " size    RRMSE    time (ms)  cutime(ms) ");
+println(" ------  --------  ----------  ---------- ");
+for (i,size_i) in enumerate(sizes)
+    @printf " %4d   %8.02e    %8.02f  %8.02f \n" size_i errors[i] timings[1,i] timings[2,i]
 end  
 
-println( " size    RRMSE    time (ms)  vs CUSOLVER(%)  cutime(ms)  ");
-println(" ------  --------  --------  ---------------  ----------  ");
-for (i,size_i) in enumerate(sizes)
-    nbtiles=Int(size_i/TILESIZE)
-    A=CUDA.randn( elty,size_i, size_i)
-    dh = CUSOLVER.dense_handle()
-    buffersize= geqrf_buffersize(A)
-    buffer=CUDA.zeros(elty,buffersize)
-    Acpy=copy(A)
-    Acpy2=copy(A)
-    
-    aout=mygesvd!(Acpy)
-    aref= svdvals!(Acpy2, alg=CUDA.CUSOLVER.QRAlgorithm())
-    CUDA.synchronize()
-
-    mymatch = norm(aout - Array(aref))/(size_i)
-    t_cusolver = @belapsed (CUDA.@sync svdvals!($A, alg=CUDA.CUSOLVER.QRAlgorithm())) gctrial=true evals=1 gcsample=false samples=1e5 seconds=2
-    t_KA = @belapsed (CUDA.@sync mygesvd!($A)) evals=1 gcsample=false samples=10 seconds=2
-    t_cusolver = @belapsed (CUDA.@sync svdvals!($A, alg=CUDA.CUSOLVER.QRAlgorithm())) gctrial=true evals=1 gcsample=false samples=1e5 seconds=2
-    t_KA = @belapsed (CUDA.@sync mygesvd!($A)) gctrial=true evals=1 gcsample=false samples=10 seconds=2
-    @printf " %4d   %8.02e    %7.02f  %8.02f %% %10.02f \n" size_i mymatch t_KA*1000  t_cusolver/t_KA*100 1000*t_cusolver 
-end  
-=#
-sizes=[64,128,256,512,1024,2048,4096,8192, 16384,32000]
-println( " size    RRMSE    time (ms)  cutime(ms) LAPACK(ms) ");
-println(" ------  --------  --------  ----------  ---------- ");
-for (i,size_i) in enumerate(sizes)
-    nbtiles=Int(size_i/TILESIZE)
-    A=randn( Float32,size_i, size_i)
-    Acpy=copy(A)
-    Acu=CuArray(A)
-
-    mymatch = 0
-    t_lapack = 0
-    t_cusolver = 0
-
-    if size_i<4000
-        aout=OOC_SVD!(copy(A), backend,kswitch=8)
-        aref= svdvals!(copy(A))
-        CUDA.synchronize()
-        mymatch= norm(aout-aref)/size_i
-        t_lapack = @belapsed svd($Acpy,alg = LinearAlgebra.QRIteration()) gctrial=true evals=1 gcsample=false samples=1e5 seconds=2
-    end
-    if size_i < 10000
-        t_cusolver = @belapsed (CUDA.@sync svdvals!($Acu, alg=CUDA.CUSOLVER.QRAlgorithm())) gctrial=true evals=1 gcsample=false samples=1e5 seconds=2
-    end
-    t_KA = @belapsed (CUDA.@sync OOC_SVD!($A, $backend,kswitch=8)) gctrial=true evals=1 gcsample=false samples=100 seconds=2
-    t_KA = @belapsed (CUDA.@sync OOC_SVD!($A, $backend,kswitch=8)) gctrial=true evals=1 gcsample=false samples=100 seconds=2
-    @printf " %4d   %8.02e    %8.02f  %8.02f %8.02f  \n" size_i mymatch t_KA*1000  1000*t_cusolver t_lapack*1000
-end  
-
-
+#=
 timings=[    1.38     3.92      0.41
 3.96     8.0       4.57
 13.5     16.84     35.6
@@ -116,4 +94,4 @@ yaxist=["1 ms","10ms","0.1s","1s", "10s", "1min"]
  plot!( size = (600, 300))
  plot!([32000,32000],[1,1], label="")
  savefig("benchmark.png")
- 
+ =#
