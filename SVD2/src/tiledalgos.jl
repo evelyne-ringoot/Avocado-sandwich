@@ -43,10 +43,12 @@ function OOC_alg!(A::Matrix{T}, f::Function,backend::Backend, kswitch::Int,tiles
     end
     if (kswitch>0)
         Agpu = KernelAbstractions.allocate(backend, T, min(n,kswitch*TILESIZE), min(n,kswitch*TILESIZE))
-        copyto!(Agpu,view(A,max(n-kswitch*TILESIZE+1,1):n,max(n-kswitch*TILESIZE+1,1):n))
+        copyto!(Agpu,A[max(n-kswitch*TILESIZE+1,1):n,max(n-kswitch*TILESIZE+1,1):n])
         f(Agpu, Tau,min(kswitch,nb_tiles))
         KernelAbstractions.synchronize(backend)
-        copyto!(view(A,max(n-kswitch*TILESIZE+1,1):n,max(n-kswitch*TILESIZE+1,1):n), Agpu)    
+        temp=zeros(T,min(kswitch*TILESIZE,n),min(kswitch*TILESIZE,n))
+        copyto!(temp,Agpu)
+        copyto!(view(A,max(n-kswitch*TILESIZE+1,1):n,max(n-kswitch*TILESIZE+1,1):n), temp)  
     end
     return A  
 end
@@ -80,7 +82,7 @@ end
 
 function mygesvd!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
-    Tau=CUDA.zeros(nbtiles,size(A,2))
+    Tau=KernelAbstractions.zeros(get_backend(A),nbtiles,size(A,2))
     myblockdiag!(A,Tau,nbtiles)
     KernelAbstractions.synchronize(get_backend(A))
     unsafe_free!(Tau)

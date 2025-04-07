@@ -31,6 +31,7 @@ function LinearAlgebra.triu!(A::IndexGPUArray{T}, d::Integer = 0) where T
 end
 
 
+if ( backend == CUDABackend())
 
 for (destType,srcType) in ((CUDA.StridedSubCuArray,SubArray) , (SubArray, CUDA.StridedSubCuArray), 
                             (CUDA.StridedSubCuArray, CUDA.StridedSubCuArray),
@@ -164,4 +165,5 @@ for (destType,srcType) in ((CUDA.StridedSubCuArray,SubArray) , (SubArray, CUDA.S
       copyto!(dest, 1, src, 1, length(src))
 
   end
+end
 end
