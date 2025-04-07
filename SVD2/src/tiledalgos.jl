@@ -105,7 +105,7 @@ function QRandmult!(A::AnyGPUMatrix, Tau, k, nbtiles;LQ=false,SVDalg=false)
 end
 
 function QRandmult!(A::LargeTiledMatrix, Tau, k, nbtiles;LQ=false,SVDalg=false)
-    nbcolgroups=(ceil(Int,nbtiles-k/(A.tilesinmem-1)))
+    nbcolgroups=(ceil(Int,(nbtiles-k)/(A.tilesinmem-1)))
     colgroupsize= ceil(Int,(nbtiles-k)/nbcolgroups)
     begincol=k+1
     endcol=min(k+colgroupsize,nbtiles)
