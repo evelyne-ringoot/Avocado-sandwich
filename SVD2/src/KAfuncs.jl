@@ -31,7 +31,7 @@ function LinearAlgebra.triu!(A::IndexGPUArray{T}, d::Integer = 0) where T
 end
 
 
-if ( backend == CUDABackend())
+if ( backend == KernelAbstractions.CUDABackend())
 
 for (destType,srcType) in ((CUDA.StridedSubCuArray,SubArray) , (SubArray, CUDA.StridedSubCuArray), 
                             (CUDA.StridedSubCuArray, CUDA.StridedSubCuArray),
