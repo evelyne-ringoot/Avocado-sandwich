@@ -29,7 +29,7 @@ function LinearAlgebra.triu!(A::IndexGPUArray{T}, d::Integer = 0) where T
     kernel(A, x; ndrange = ndims(A) > 0 ? size(A) : (1,))
     A
 end
-
+#=
 
 if ( Base.find_package("CUDA") !== nothing)
 
@@ -167,3 +167,5 @@ for (destType,srcType) in ((CUDA.StridedSubCuArray,SubArray) , (SubArray, CUDA.S
   end
 end
 end
+
+=#
