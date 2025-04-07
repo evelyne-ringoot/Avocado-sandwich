@@ -1,7 +1,7 @@
 using LinearAlgebra.LAPACK: chkargsok, chklapackerror, chktrans, chkside, chkdiag, chkuplo
 using LinearAlgebra: BlasInt, checksquare
 
-if ( backend == KernelAbstractions.CUDABackend())
+if ( Base.find_package("CUDA") !== nothing)
 
 for (bname, fname,elty) in ((:cusolverDnSgeqrf_bufferSize, :cusolverDnSgeqrf, :Float32),
     (:cusolverDnSgeqrf_bufferSize, :cusolverDnSgeqrf, :Float32))
