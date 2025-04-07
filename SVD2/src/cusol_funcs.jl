@@ -42,6 +42,8 @@ for (bname, fname, elty) in ((:cusolverDnSormqr_bufferSize, :cusolverDnSormqr, :
 end
 
 
+const AbstractGPUorCPUMat{T} = Union{AbstractGPUArray{T, 2}, AbstractMatrix{T}}
+const AbstractGPUorCPUArray{T} = Union{AbstractGPUArray{T}, AbstractArray{T}}
 
 using ..LinearAlgebra.BLAS: @blasfunc, chkuplo
 
@@ -52,7 +54,7 @@ using Base: iszero, require_one_based_indexing
 
 const liblapack = libblastrampoline
 
-function diagcopyto!(dest::Array,  src::Array, bw::Int)
+function diagcopyto!(dest::AbstractGPUorCPUArray,  src::AbstractGPUorCPUArray, bw::Int)
     @kernel function diag_copy_kernel!(dest, src,bw)
         i,j = @index(Global, NTuple)
         if i+j>=bw+2
@@ -60,45 +62,58 @@ function diagcopyto!(dest::Array,  src::Array, bw::Int)
         end
     end
     kernel = diag_copy_kernel!(get_backend(dest))
-    kernel(dest,  src, bw; ndrange=((bw+1,size(src,1))))
+    kernel(dest,  src, bw; ndrange=((bw+1,size(src,2))))
+    KernelAbstractions.synchronize(get_backend(dest))
+    return dest
 end
 
-const AbstractGPUorCPUMat{T} = Union{AbstractGPUArray{T, 2}, AbstractMatrix{T}}
+
 
 for (gebrd, elty) in
-    ((:sgbbrd_, :Float32), (:sgbbrd_, :Float32),)
+    ((:sgbbrd_, :Float32), (:dgbbrd_, :Float64),)
 @eval begin
-function gbbrd!(A::AbstractGPUorCPUMat{T}, bandwidth::Int) where T
-    m, n  = size(A)
-    k     = min(m, n)
-    d     = zeros($elty, k)
-    e     = zeros( $elty, k-1)
-    tauq  = zeros( $elty, k)
-    taup  = zeros( $elty, k)
+function gbbrd!(AB::AbstractMatrix{$elty}, bandwidth::Int) 
+    m  = size(AB,2)
+    k  =m
+    n = m
+    d     = ones( $elty, k)
+    e     = ones( $elty, k-1)
     work  = Vector{$elty}(undef, 2*max(m,n))
-    tempvar  = Vector{$elty}(undef, m)
+    tempvar1  = Vector{$elty}(undef, 0)
+    tempvar2  = Vector{$elty}(undef, 0)
+    tempvar3  = Vector{$elty}(undef, 0)
     info  = Ref{BlasInt}()
     
-    AB=zeros($elty,bandwidth+1,n)
-    ABGPU=KernelAbstractions.zeros(get_backend(A),$elty,bandwidth+1,m)
-    diagcopyto!(ABGPU,A,bandwidth)
-    if (get_backend(AB)== get_backend(A)) 
-        AB=ABGPU
-    else
-        copyto!(AB,ABGPU)
-    end
-    KernelAbstractions.synchronize(get_backend(ABGPU))
-
-    ccall((@blasfunc($gebrd), libblastrampoline), Cvoid, 
-            (Ref{UInt8}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt},  Ptr{$elty}, Ref{BlasInt},
-                Ptr{$elty}, Ptr{$elty}, Ptr{$elty}, Ref{BlasInt}, Ptr{$elty}, Ref{BlasInt}, Ptr{$elty}, Ref{BlasInt},
-                Ptr{$elty}, Ptr{BlasInt}),
-                'N', m, n, 1,0, bandwidth,  AB, bandwidth+1, 
-                d, e, tempvar, 1,tempvar,1,tempvar,m,
-                work,  info)
+        ccall((@blasfunc($gebrd), libblastrampoline), Cvoid, 
+                (Ref{UInt8}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt},  Ptr{$elty}, Ref{BlasInt},
+                    Ptr{$elty}, Ptr{$elty}, Ptr{$elty}, Ref{BlasInt}, Ptr{$elty}, Ref{BlasInt}, Ptr{$elty}, Ref{BlasInt},
+                    Ptr{$elty}, Ptr{BlasInt}),
+                    'N', m, n, Ref{BlasInt}(0),Ref{BlasInt}(0), bandwidth,  AB, bandwidth+1, 
+                    d, e, tempvar1, m,tempvar2,n,tempvar3,m,
+                    work,  info)
+                    Base.Libc.flush_cstdio()
+    
+    #chklapackerror(info[])
     return d,e
+
 end
 end
+end
+
+function gbbrd_copy(A::AbstractMatrix, bandwidth::Int)
+    AB=similar(A,bandwidth+1,size(A,2))
+    diagcopyto!(AB,A,bandwidth)
+    return AB
+end
+
+
+function gbbrd_copy(A::AbstractGPUMatrix, bandwidth::Int)
+    AB=similar(A,bandwidth+1,size(A,2))
+    diagcopyto!(AB,A,bandwidth)
+    ABcpu=ones(eltype(A),bandwidth+1,size(A,2))
+    copyto!(ABcpu,AB)
+    KernelAbstractions.synchronize(get_backend(A))
+    return ABcpu
 end
 
 
