@@ -82,7 +82,7 @@ end
 
 function mygesvd!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
-    Tau=KernelAbstractions.zeros(get_backend(A),nbtiles,size(A,2))
+    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),nbtiles,size(A,2))
     myblockdiag!(A,Tau,nbtiles)
     KernelAbstractions.synchronize(get_backend(A))
     unsafe_free!(Tau)
