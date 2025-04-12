@@ -22,13 +22,21 @@ function LargeTiledMatrix(input::AbstractMatrix{T}, backend::Backend, tilesinmem
         push!(rows, Row)
     end
     return LargeTiledMatrix(input,rows, backend, Int(size(input,1)/TILESIZE),tilesinmem,
-                         [zeros(T, TILESIZE, tilesinmem*TILESIZE), zeros(T, TILESIZE, (tilesinmem-1)*TILESIZE),  zeros(T, TILESIZE, TILESIZE)])
+                         [zeros(T, TILESIZE, tilesinmem*TILESIZE), zeros(T, TILESIZE, (tilesinmem-1)*TILESIZE),  
+                         zeros(T, TILESIZE, TILESIZE), zeros(T,1,1),zeros(T,1,1)])
 end
 
-function resizecache(A::LargeTiledMatrix{T},n::Int) where {T}
+@inline function resizecache(A::LargeTiledMatrix{T},n::Int) where {T}
     if (size(A.cpucache[1],2)!=n*TILESIZE)
         A.cpucache[1] = zeros(T, TILESIZE, n*TILESIZE)
         A.cpucache[2] = zeros(T, TILESIZE, (n-1)*TILESIZE)
+    end
+end
+
+@inline function addtocache(A::LargeTiledMatrix{T},n::Int) where {T}
+    if (size(A.cpucache[4],2)!=n*TILESIZE)
+        A.cpucache[4] = zeros(T, TILESIZE, n*TILESIZE)
+        A.cpucache[5] = zeros(T, TILESIZE, (n-1)*TILESIZE)
     end
 end
 
@@ -45,8 +53,10 @@ end
         @inbounds copyto!(src.cpucache[3],get_tileview(src.parent,l,k)  )
         @inbounds copyto!(get_tileview(src.TileRows[idx], 1, colinmem), src.cpucache[3])
     end
-    @inbounds copyto!(src.cpucache[(colbegin== k+1) ? 1 : 2 ],get_rowview(src.parent,l,(colbegin== k+1) ? k : colbegin,endcol=endcol) )    
-    @inbounds copyto!(get_rowview(src.TileRows[idx],1, colinmem+ (colbegin!=k+1), endcol=colinmem+(endcol-colbegin)+1), src.cpucache[(colbegin== k+1) ? 1 : 2 ])
+    smallercache = (endcol-colbegin)+1 != size(src.cpucache[1],2)
+    cacheidx= ((colbegin== k+1) ? 1 : 2) + (smallercache ? 3 : 0)
+    @inbounds copyto!(src.cpucache[cacheidx],get_rowview(src.parent,l,(colbegin== k+1) ? k : colbegin,endcol=endcol) )    
+    @inbounds copyto!(get_rowview(src.TileRows[idx],1, colinmem+ (colbegin!=k+1), endcol=colinmem+(endcol-colbegin)+1), src.cpucache[cacheidx ])
     
 end
 
@@ -57,8 +67,9 @@ end
         @inbounds copyto!(src.cpucache[3], get_tileview(src.TileRows[ idx],1 , colinmem))
         @inbounds copyto!( get_tileview(src.parent,l,k) , src.cpucache[3])
     end 
-    
-    @inbounds copyto!(src.cpucache[inclfirst ? 1 : 2 ] ,  ( get_rowview(src.TileRows[ idx],1 , colinmem+Int(!inclfirst), endcol=colinmem+(endcol-colbegin)+1)))
-    @inbounds copyto!(get_rowview(src.parent,l,inclfirst ? k : colbegin,endcol=endcol) ,src.cpucache[inclfirst ? 1 : 2 ]  )
+    smallercache = (endcol-colbegin)+1 != size(src.cpucache[1],2)
+    cacheidx= (inclfirst ? 1 : 2 ) + (smallercache ? 3 : 0)
+    @inbounds copyto!(src.cpucache[cacheidx] ,  ( get_rowview(src.TileRows[ idx],1 , colinmem+Int(!inclfirst), endcol=colinmem+(endcol-colbegin)+1)))
+    @inbounds copyto!(get_rowview(src.parent,l,inclfirst ? k : colbegin,endcol=endcol) ,src.cpucache[cacheidx ]  )
 
 end

@@ -115,6 +115,7 @@ function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, n
     endcol=min(k+colgroupsize,nbtiles)
     colinmem= A.tilesinmem-min(nbtiles-k, colgroupsize)
     while begincol<=nbtiles
+        addtocache(A,endcol-begincol+2)
 
         setfirst!(A,k, LQ ,begincol,endcol,colinmem )
         QRandmulQt1!(A, Tau,k;LQ=LQ,SVDalg=SVDalg,begincol=begincol,endcol=endcol, colinmem=colinmem)
