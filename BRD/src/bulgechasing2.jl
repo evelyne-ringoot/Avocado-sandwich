@@ -1,4 +1,4 @@
-using LinearAlgebra, BenchmarkTools, Base.@Threads
+using LinearAlgebra, BenchmarkTools, Base.Threads, Polyester
 
 
 function QR_QMUL(A,idx1, idx2, n,ts)
@@ -71,7 +71,29 @@ function bidiag_async!(A, bandwidth;factor=4, kernelsizeinit=32)
     return A;
 end
 
-
+function bidiag_async2!(A, bandwidth;factor=4, kernelsize=256)
+    (m,n) = size(A)
+    cbw=bandwidth
+    while cbw>1
+        tbw=max(1,div(cbw,factor))
+        ts=tbw
+        for sweeprow=1:kernelsize*ts:n-1-ts #row to cancel
+            for iter=0: n #propagation idx
+                @batch for kernelidx=1:kernelsize
+                    row=sweeprow + (kernelidx)*ts+cbw*(iter+1-2kernelidx) 
+                    if ((iter>=(2kernelidx-2)) && row<n)
+                        rowstart= (iter==(2kernelidx-2)) ? row+cbw-tbw : row
+                        LQ_QMUL(A,rowstart:row+2cbw-1, row+cbw:row+2cbw-1, n,ts)
+                        QR_QMUL(A, row+cbw:row+2cbw-1,row+cbw:row+3cbw-1,n,ts)
+                    end
+                end
+            end
+            
+        end
+        cbw=tbw
+    end
+    return A;
+end
 
 
 #testing for correctness
@@ -121,8 +143,7 @@ for (gebrd, elty) in
     ((:dgbbrd_, :Float64), (:dgbbrd_, :Float64),)
 @eval begin
 function gbbrd!(A::AbstractMatrix{Float64}, bandwidth::Int)
-    gebrd=
-    elty=:Float64
+ 
     m, n  = size(A)
     k     = min(m, n)
     d     = similar(A, $elty, k)
@@ -309,8 +330,8 @@ yaxis=[0.001, 0.01, 0.1, 1,10, 60, 300 ]
 yaxist=["1 ms","10ms","0.1s","1s", "10s", "1min", "5min"]
 plot(n_values, timings[:,:,1], labels= "bandwith ".*string.(bw_values') , lw=2, markershape=:circle, markerstrokewidth=0, markersize=3, color=[1 2 3 4])
 plot!(n_values,timings[:,:,2], labels= "", lw=1, linestyle=:dash, markerstrokewidth=0, markersize=0, color=[1 2 3 4])
-plot!([128,128],[1,1], labels= titles[2], lw=1, linestyle=:dash, markerstrokewidth=0, markersize=0, color="black")
-plot!([128,128],[1,1], labels= titles[1],  lw=2, markershape=:circle, markerstrokewidth=0, markersize=3, color="black")
+plot!([1024,1024],[1,1], labels= titles[2], lw=1, linestyle=:dash, markerstrokewidth=0, markersize=0, color="black")
+plot!([1024,1024],[1,1], labels= titles[1],  lw=2, markershape=:circle, markerstrokewidth=0, markersize=3, color="black")
 plot!(xaxis=:log2,  yaxis=:log10,legend=:topleft,  xlabel= "matrix size nxn", ylabel= "Execution time", dpi=1000)
 
 
@@ -359,9 +380,6 @@ using Polyester
     end
 end
 
-@benchmark begin
-    qr!()
-end
 
 @benchmark begin
     @sync begin
