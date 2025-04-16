@@ -86,6 +86,7 @@ applyLQ1!(A,T;ndrange)=applyQR1!(A',T,ndrange=ndrange)
 applyLQ2!(A,B, T;ndrange)=applyQR2!(A',B', T,ndrange=ndrange)
 applyQt1L!(A,B,T;ndrange)=applyQt1!(A',B',T,ndrange=ndrange)
 applyQt2L!(A,B,C,T;ndrange)=applyQt2!(A',B',C', T,ndrange=ndrange)
+
 mytril!(A;ndrange)=mytriu!(A',ndrange=ndrange)
 
 QR1!(A::TiledMatrix, k) = applyQR1!(A.TileViews[k,k],A.Tau[k,k], ndrange=A.myrange1) 
@@ -139,7 +140,7 @@ function LargeTiledMatrix(A::Matrix{T}, backend, matrixsize::Int, blocksize::Int
     return LargeTiledMatrix(A, matrixsize, matrixsize, blocksize, blocksize, no_blocks, range1, range2, backend, rows)
 end
 
-function recycle_tilerow(Atile::LargeTiledMatrix, k::Int, l::Int, R::Bool, first::Bool, exclfirst::Bool)
+function recycle_tilerow(Atile::LargeTiledMatrix, k::Int, l::Int, R::Bool, first::Bool, exclfirst::Bool; excllast::Bool=false)
     Row= Atile.Rows[first ? 1 : 2].RowTile
     if R
         copyto!(getblockview(Atile, first ? 1 : 2 , k, exclfirst), copy(hor_blocktileview(Atile, l, k + Int(exclfirst)) ))
@@ -158,12 +159,12 @@ function finish_recycle!(Atile::LargeTiledMatrix)
     deleteat!(Atile.Rows,2)
 end
 
-function get_tilerow(A::LargeTiledMatrix, k::Int, l::Int, R::Bool, first::Bool)
+function get_tilerow(A::LargeTiledMatrix, k::Int, l::Int, R::Bool, idx::Int)
     if R
-        (hor_blocktileview(A,l,k) .= Array( getblockview(A, first ? 1 : 3 , k, false)))
+        (hor_blocktileview(A,l,k) .= Array( getblockview(A, idx , k, false)))
     else   
-         #TODO: implement copy for transpose (note the copy is on GPU, so not a real performance bottleneck)
-        ver_blocktileview(A,k,l) .= Array(getblockview(A, first ? 1 : 3 , k, false)')
+         #TODO: implement copy for transpose (note the copy is on CPU, so not a real performance bottleneck)
+        ver_blocktileview(A,k,l) .= Array(getblockview(A, idx , k, false)')
     end
 end
 
@@ -180,6 +181,6 @@ QR1!(A::LargeTiledMatrix, k) = applyQR1!(A.Rows[1].RowTile, A.Rows[1].Tau, ndran
 QR2!(A::LargeTiledMatrix, row, k) =applyQR2!(A.Rows[1].RowTile, A.Rows[4].RowTile, A.Rows[4].Tau, ndrange=A.myrange1)
 
 Qtapply1_par!(A::LargeTiledMatrix, k) = applyQt1!(get_view_exclfirst(A,1,k), A.Rows[1].RowTile, A.Rows[1].Tau, ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]) )
-Qtapply2_par!(A::LargeTiledMatrix, row,k) = applyQt2!(get_view_exclfirst(A,1,k), get_view_exclfirst(A,4,k), A.Rows[4].RowTile, A.Rows[4].Tau, ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]))
+Qtapply2_par!(A::LargeTiledMatrix, k) = applyQt2!(get_view_exclfirst(A,1,k), get_view_exclfirst(A,4,k), A.Rows[4].RowTile, A.Rows[4].Tau, ndrange=(A.m*(A.no_tiles-k),A.myrange2[2]))
 
 getblockview(A::LargeTiledMatrix, idx::Int , k::Int, exclfirst::Bool) = view(A.Rows[idx].RowTile, :, (1 + (Int(exclfirst)*A.n)):(A.n * (A.no_tiles - k + 1) ) )
