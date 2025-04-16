@@ -1,0 +1,8 @@
+*/build/
+**/build/
+*/Manifest.toml
+*/Project.toml
+**/Manifest.toml
+**/Project.toml
+.vscode
+KAbasedSVD/mscthesis_figures/
