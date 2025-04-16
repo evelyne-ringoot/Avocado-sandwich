@@ -44,7 +44,7 @@ end
     return
 end
 
-@inline naivematmul!(size_in,inputa,inputb,output) =  naivematmulkernel!(backend, (NUMPARX,NUMPARY))(size_in,inputa,inputb,output, ndrange=(max(NUMPARX,size_in),max(NUMPARY,size_in))) 
+naivematmul!(size_in,inputa,inputb,output) =  naivematmulkernel!(backend, (NUMPARX,NUMPARY))(size_in,inputa,inputb,output, ndrange=(max(NUMPARX,size_in),max(NUMPARY,size_in))) 
 
 function cunaivematmulkernel!(size_i, inputa,inputb,output) 
     g = ( ((blockIdx().x) - Int32(1)) *Int32(NUMPARX)+ (threadIdx().x-Int32(1)) ) 
@@ -62,7 +62,7 @@ function cunaivematmulkernel!(size_i, inputa,inputb,output)
 end
 
 
-@inline cunaivematmul!(size_in, inputa,inputb,output)  =  @cuda threads=(NUMPARX,NUMPARY) blocks=(cld(size_in, NUMPARX),cld(size_in, NUMPARY) )  cunaivematmulkernel!(size_in, inputa,inputb,output) 
+cunaivematmul!(size_in, inputa,inputb,output)  =  @cuda threads=(NUMPARX,NUMPARY) blocks=(cld(size_in, NUMPARX),cld(size_in, NUMPARY) )  cunaivematmulkernel!(size_in, inputa,inputb,output) 
 
 sizes=[32,64,128,256,512,1024,2048]
 timings=ones(3,length(sizes))*100

@@ -234,7 +234,7 @@ void run_config( Phase phase,
     double target_time_ms = 200.0;
     double elapsed_ms = benchmark_ms(
         target_time_ms,
-        2,
+        20,
         [&]() {
         },
         [&]() {

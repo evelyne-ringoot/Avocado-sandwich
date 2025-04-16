@@ -5,7 +5,7 @@ elty=Float32
 const ELPERTHREAD = 128
 const NUMTHREADS = 1
 const NUMPAR = 32
-const numruns = 2
+const numruns = 20
 
 function benchmark_ms( myfunc, args...;kwargs...)
     elapsed=0.0
@@ -41,7 +41,7 @@ end
     return
 end
 
-@inline reduction!(size_in, A) = reductionkernel!(backend, (NUMTHREADS*NUMPAR))(size_in, A, ndrange=(NUMTHREADS*cld(size_in,NUMPAR)*NUMPAR)) 
+reduction!(size_in, A) = reductionkernel!(backend, (NUMTHREADS*NUMPAR))(size_in, A, ndrange=(NUMTHREADS*cld(size_in,NUMPAR)*NUMPAR)) 
 
 function cureductionkernel!(size_in, input::CuDeviceArray{T}) where T
     g = ( ((blockIdx().x) - Int32(1)) *Int32(NUMPAR)+ (threadIdx().x-Int32(1)) ) 
@@ -57,7 +57,7 @@ function cureductionkernel!(size_in, input::CuDeviceArray{T}) where T
     return
 end
 
-@inline cureduction!(size_in, input::AnyGPUArray{T}) where T =  @cuda threads=NUMTHREADS*NUMPAR blocks=cld(size_in, NUMPAR) cureductionkernel!(size_in, input)
+cureduction!(size_in, input::AnyGPUArray{T}) where T =  @cuda threads=NUMTHREADS*NUMPAR blocks=cld(size_in, NUMPAR) cureductionkernel!(size_in, input)
 
 sizes=[32,128,512, 2048,1024*8,1024*32,1024*128 ]
 timings=zeros(3,length(sizes))
