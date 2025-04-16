@@ -94,16 +94,12 @@ benchmark_ms(double target_time_ms, int32_t num_iters_inner, Reset &&reset, F &&
 }
 
 struct BenchmarkConfig {
-    int32_t size_i;
+    int32_t size_in;
 };
 
 struct TestData {
     std::map<int32_t, float*> input;
     std::map<int32_t, float*> singvals;
-};
-
-struct BenchmarkResults {
-    std::map<int32_t, double> elapsed_ms;
 };
 
 enum class Phase {
@@ -113,9 +109,14 @@ enum class Phase {
 };
 
 void run_config( Phase phase,
-    BenchmarkConfig const &config,
-    BenchmarkResults &results) {
+    BenchmarkConfig const &config) {
     auto size_in = config.size_in;
+
+    if (phase==Phase::BENCHMARK){
+        printf("  %6d ", size_in);
+    }else{
+        printf("  %6d \n", size_in);
+    }
 
     rocblas_handle rocblas_handle;
     ROCBLAS_CHECK(rocblas_create_handle(&rocblas_handle));
@@ -151,14 +152,15 @@ void run_config( Phase phase,
         ROCBLAS_CHECK(rocblas_destroy_handle(rocblas_handle));
         ROCRAND_CHECK(rocrand_destroy_generator(gen));
 
-    results.elapsed_ms[size_i] = elapsed_ms;
+        if (phase==Phase::BENCHMARK){
+            printf("  %8.03f \n", elapsed_ms);
+        }
 }
 
 
-BenchmarkResults run_all_configs(
+void run_all_configs(
     Phase phase,
     std::vector<BenchmarkConfig> const &configs) {
-    auto results = BenchmarkResults;
     if (phase == Phase::WARMUP) {
         printf("warmup\n\n");
     }else {
@@ -173,20 +175,9 @@ BenchmarkResults run_all_configs(
             "---------");
     }
     for (auto const &config : configs) {
-        run_config( phase, config, results);
+        run_config( phase, config);
     }
     printf("\n");
-    return results;
-}
-
-
-
-std::vector<BenchmarkResults> run_all_impls(
-    Phase phase,
-    std::vector<BenchmarkConfig> const &configs) {
-    auto results = std::vector<BenchmarkResults>{};
-    results.push_back(run_all_configs(phase, configs));
-    return results;
 }
 
 
@@ -194,13 +185,13 @@ std::vector<BenchmarkResults> run_all_impls(
 int main(int argc, char **argv) {
     std::string test_data_dir = ".";
 
-    #int n = std::stoi(argv[1]);
+    //int n = std::stoi(argv[1]);
     auto configs_test = std::vector<BenchmarkConfig>{
-        {{64},{128},{256},{512},{1024},{2048}, {4096}, {8192}},
+        {{64},{128},{256},{512},{1024},{2048}, {4096}},
     };
 
-    run_all_impls(Phase::WARMUP,  configs_test);
-    run_all_impls(Phase::BENCHMARK, configs_test);
+    run_all_configs(Phase::WARMUP,  configs_test);
+    run_all_configs(Phase::BENCHMARK, configs_test);
 
     return 0;
 }

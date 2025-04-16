@@ -17,7 +17,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cublas_v2.h>
-#include "cusolver_utils.h"
 
 // Error checking macro for CUDA calls
 #define CUDA_CHECK(call)                                                       \
@@ -84,7 +83,7 @@ benchmark_ms(double target_time_ms, int32_t num_iters_inner, Reset &&reset, F &&
 }
 
 struct BenchmarkConfig {
-    int32_t size_i;
+    int32_t size_in;
 };
 
 struct TestData {
@@ -92,9 +91,7 @@ struct TestData {
     std::map<int32_t, float*> singvals;
 };
 
-struct BenchmarkResults {
-    std::map<int32_t, double> elapsed_ms;
-};
+
 
 enum class Phase {
     TEST,
@@ -103,9 +100,14 @@ enum class Phase {
 };
 
 void run_config( Phase phase,
-    BenchmarkConfig const &config,
-    BenchmarkResults &results) {
-    auto size_i = config.size_in;
+    BenchmarkConfig const &config) {
+    auto size_in = config.size_in;
+
+    if (phase==Phase::BENCHMARK){
+        printf("  %6d ", size_in);
+    }else{
+        printf("  %6d \n", size_in);
+    }
  
     curandGenerator_t curandGen;
     CURAND_CHECK(curandCreateGenerator(&curandGen, CURAND_RNG_PSEUDO_DEFAULT));
@@ -134,7 +136,7 @@ void run_config( Phase phase,
         },
         [&]() {
             CUSOLVER_CHECK(cusolverDnSgesvd(
-                cusolverH,  'N',  'N',  size_in,   size_in,  a_goy, size_in, svdout, nullptr, 
+                cusolverH,  'N',  'N',  size_in,   size_in,  a_gpu, size_in, svdout, nullptr, 
                 size_in,   nullptr,  size_in,   d_work,  lwork,   nullptr,  d_info  ));
         });
 
@@ -145,14 +147,14 @@ void run_config( Phase phase,
     CUSOLVER_CHECK(cusolverDnDestroy(cusolverH));
     CURAND_CHECK(curandDestroyGenerator(curandGen));
 
-    results.elapsed_ms[size_i] = elapsed_ms;
+    if (phase==Phase::BENCHMARK){
+        printf("  %8.03f \n", elapsed_ms);
+    }
 }
 
-
-BenchmarkResults run_all_configs(
+void run_all_configs(
     Phase phase,
     std::vector<BenchmarkConfig> const &configs) {
-    auto results = BenchmarkResults;
     if (phase == Phase::WARMUP) {
         printf("warmup\n\n");
     }else {
@@ -167,20 +169,9 @@ BenchmarkResults run_all_configs(
             "---------");
     }
     for (auto const &config : configs) {
-        run_config( phase, config, results);
+        run_config( phase, config);
     }
     printf("\n");
-    return results;
-}
-
-
-
-std::vector<BenchmarkResults> run_all_impls(
-    Phase phase,
-    std::vector<BenchmarkConfig> const &configs) {
-    auto results = std::vector<BenchmarkResults>{};
-    results.push_back(run_all_configs(phase, configs));
-    return results;
 }
 
 
@@ -188,13 +179,13 @@ std::vector<BenchmarkResults> run_all_impls(
 int main(int argc, char **argv) {
     std::string test_data_dir = ".";
 
-    #int n = std::stoi(argv[1]);
+    //int n = std::stoi(argv[1]);
     auto configs_test = std::vector<BenchmarkConfig>{
-        {{64},{128},{256},{512},{1024},{2048}, {4096}, {8192}},
+        {{64},{128},{256},{512},{1024},{2048}, {4096}},
     };
 
-    run_all_impls(Phase::WARMUP,  configs_test);
-    run_all_impls(Phase::BENCHMARK, configs_test);
+    run_all_configs(Phase::WARMUP,  configs_test);
+    run_all_configs(Phase::BENCHMARK, configs_test);
 
     return 0;
 }
