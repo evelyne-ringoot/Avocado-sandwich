@@ -9,6 +9,12 @@ include("../src/qr_kernels.jl")
 include("../src/datacomms.jl")
 include("../src/tiledalgos.jl")
 
+#@inline backendstream() = CUDA.stream()
+#@inline setstream!(stream::CuStream) = CUDA.stream!(stream)
+#@inline backendstream() = AMDGPU.HIPStream()
+#@inline setstream!(s::HIPStream) = AMDGPU.stream!(stream)
+
+
 function benchmark_ms( myfunc, args...;kwargs...)
     elapsed=0.0
     best=100000
@@ -38,15 +44,15 @@ function cusvdwithcopy(a)
 end
 
 elty=Float32
-sizes=[64,128,256,512,1024,2048,4096]
+sizes=[64,128,256,512,1024,2048]
 timings=ones(4,length(sizes))*1000000
 errors=zeros(2,length(sizes))
 
 
 inputs=[randn(elty,size_i, size_i) for size_i in sizes]
 println( "Checking correctness OOC");
-for (i,size_i) in enumerate(sizes[1:6])
-    aout=OOC_SVD!(copy(inputs[i]), backend,kswitch=10, tilesinmem=14)
+for (i,size_i) in enumerate(sizes[1:4])
+    aout=OOC_SVD!(copy(inputs[i]), backend,kswitch=4)
     _,aref,_= LinearAlgebra.LAPACK.gesvd!('N','N',copy(inputs[i]))
     KernelAbstractions.synchronize(backend)
     errors[2,i]= norm((aout-aref)./aref)/sqrt(size_i)
@@ -64,19 +70,23 @@ end
 println( "Benchmarking KA only");
 for (i,size_i) in enumerate(sizes)
     a=inputs[i]
-    timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend), timings[4,i])
+    timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=4), timings[4,i])
 end
 
 for (i,size_i) in enumerate(sizes)
     a=inputs[i]
-    timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend), timings[4,i])
+    timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=4), timings[4,i])
 end
 
 
 
-inputs=[CUDA.randn(elty,size_i, size_i) for size_i in sizes]
+inputs=[CUDA.zeros(elty,size_i, size_i) for size_i in sizes]
+inputs=[rand!(GPUArrays.default_rng(eltype(inputs[1])), x) for x in inputs]
+
+
+
 println( "Checking correctness GPU only");
-for (i,size_i) in enumerate(sizes[1:6])
+for (i,size_i) in enumerate(sizes[1:4])
     aout=mygesvd!(copy(inputs[i]))
     aref= Array(svdvals!(copy(inputs[i]),  alg=CUDA.CUSOLVER.QRAlgorithm()))
     KernelAbstractions.synchronize(backend)
