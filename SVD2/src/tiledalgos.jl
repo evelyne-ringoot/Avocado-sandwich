@@ -70,9 +70,9 @@ end
 
 function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int; kend::Int=0) where {T}
     for k in 1:(nbtiles-kend)
-        QRandmult!(A,Tau,k, nbtiles; SVDalg=true)
+        QRandmult!(A,Tau,k, nbtiles)
         (k==nbtiles) && break
-        QRandmult!(A',Tau,k, nbtiles; LQ=true, SVDalg=true)
+        QRandmult!(A',Tau,k, nbtiles; LQ=true)
     end
     return A
 end
@@ -92,7 +92,8 @@ function mygesvd!(A::AbstractGPUMatrix)
     return banddiagsvd(A,TILESIZE)
 end
 
-function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false,SVDalg::Bool=false)  where {T}
+
+function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
 
     QR1!(A,Tau, k;koffset=Int(LQ),singlerow=false)
     Qtapply1_par!(A, Tau, k; koffset=Int(LQ), singlerow=false)
@@ -107,7 +108,7 @@ function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtil
         end
 end
 
-function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false,SVDalg::Bool=false) where {T}
+function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false) where {T}
     nbcolgroups=(ceil(Int,(nbtiles-k)/(A.tilesinmem-1)))
     colgroupsize= ceil(Int,(nbtiles-k)/nbcolgroups)
     resizecache(A,colgroupsize+1)
@@ -118,7 +119,7 @@ function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, n
         addtocache(A,endcol-begincol+2)
 
         setfirst!(A,k, LQ ,begincol,endcol,colinmem )
-        QRandmulQt1!(A, Tau,k;LQ=LQ,SVDalg=SVDalg,begincol=begincol,endcol=endcol, colinmem=colinmem)
+        QRandmulQt1!(A, Tau,k;LQ=LQ,begincol=begincol,endcol=endcol, colinmem=colinmem)
         for row in k+1+Int(LQ):nbtiles
             QRandmulQt2!(A, Tau,k,row;LQ=LQ,begincol=begincol,endcol=endcol, colinmem=colinmem)
         end
@@ -130,7 +131,7 @@ function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, n
 end
 
 
-@inline function QRandmulQt1!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; LQ::Bool=false, SVDalg::Bool=false, begincol::Int=k+1, endcol::Int=A.nb_tiles, colinmem::Int=k) where {T}
+@inline function QRandmulQt1!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; LQ::Bool=false,  begincol::Int=k+1, endcol::Int=A.nb_tiles, colinmem::Int=k) where {T}
     push!(A.TileRows,  A.TileRows[2])
     begincol==k+1 && QR1!(A.TileRows[1],Tau, k;singlerow=true,colinmem=colinmem)
     Qtapply1_par!(A.TileRows[1], Tau, k;  singlerow=true,colinmem=colinmem)
