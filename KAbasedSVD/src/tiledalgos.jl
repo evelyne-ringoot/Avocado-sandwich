@@ -11,7 +11,7 @@ function tiled_QR!(A::GeneralTiledMatrix; kend=A.no_tiles)
             QRandmulQt2!(A,row,k)
         end
     end
-    finish_algo!(A, kend)    
+    finish_algo!(A, kend) 
 end
 
 function Blockbidiag!(A::GeneralTiledMatrix; kend=A.no_tiles) 
@@ -80,11 +80,12 @@ function QRandmulQt1!(A::LargeTiledMatrix, k::Int,prevR::Bool,currentR::Bool, ze
     end 
     CUDA.synchronize()
     @sync begin
-        #Threads.@spawn CUDA.@sync ((k>1) && get_tilerow(A,k-1,A.no_tiles ,prevR, false ))
         Threads.@spawn begin
             CUDA.@sync begin
                 if (k+Int(!currentR)<A.no_tiles)
                     recycle_tilerow(A, k, k+1+Int(!currentR), currentR, false, false)
+                else
+                    push!(A.Rows, TileRow(currentR, k, 0, A.Rows[2].RowTile, A.Rows[2].Tau))
                 end
             end
         end
@@ -101,6 +102,8 @@ function QRandmulQt1!(A::LargeTiledMatrix, k::Int,prevR::Bool,currentR::Bool, ze
     CUDA.synchronize()
 end
 
+
+
 QRandmulQt1!(A::LargeTiledMatrix, k::Int; alg="QR") = QRandmulQt1!(A, k, alg=="QR",true, alg=="SVD")
 LQandmulQt1!(A::LargeTiledMatrix, k::Int; alg="QR") = QRandmulQt1!(A, k, true,false, alg=="SVD")
 
@@ -110,7 +113,7 @@ function QRandmulQt2!(A::LargeTiledMatrix, row::Int, k::Int, zerofactor::Bool)
         Threads.@spawn begin
             CUDA.@sync begin
                 if (row>k+1)
-                    (get_tilerow(A,k,row-1 ,true, false )) 
+                    (get_tilerow(A,k,row-1 ,true, 3 )) 
                 end
             end
         end 
@@ -128,17 +131,15 @@ function QRandmulQt2!(A::LargeTiledMatrix, row::Int, k::Int, zerofactor::Bool)
         Threads.@spawn begin
             CUDA.@sync begin
                 QR2!(A,row,k)
-                Qtapply2_par!(A,row,k)
+                Qtapply2_par!(A,k)
                 zerofactor && (get_view_first(A,4).=0)
             end
         end
     end
     finish_recycle!(A)
-    if (A.no_tiles==row)
-        get_tilerow(A,k,row ,true, false )
-    end
     CUDA.synchronize()
 end
+
 
 QRandmulQt2!(A::LargeTiledMatrix, row::Int, k::Int; alg="QR") = QRandmulQt2!(A, row, k, alg=="SVD") 
 
@@ -147,7 +148,7 @@ function LQandmulQt2!(A::LargeTiledMatrix, k::Int, col::Int, zerofactor::Bool)
         Threads.@spawn begin
             CUDA.@sync begin
                 if (col>k+2)
-                    get_tilerow(A,k,col-1 ,false, false )
+                    get_tilerow(A,k,col-1 ,false, 3 )
                 end
             end
         end 
@@ -165,25 +166,31 @@ function LQandmulQt2!(A::LargeTiledMatrix, k::Int, col::Int, zerofactor::Bool)
         Threads.@spawn begin
             CUDA.@sync begin
                 QR2!(A,k,col)
-                Qtapply2_par!(A,k,col)
+                Qtapply2_par!(A,k)
+                
                 zerofactor && (get_view_first(A,4).=0)
             end
         end
     end
     finish_recycle!(A)
-    if (A.no_tiles==col)
-        get_tilerow(A,k,col ,false, false )
-    end
     CUDA.synchronize()
 end
+
 LQandmulQt2!(A::LargeTiledMatrix, k::Int, col::Int; alg="QR") = LQandmulQt2!(A, k,col, alg=="SVD") 
 
 function getandset_first!(A::LargeTiledMatrix, k::Int,k2::Int, prevR::Bool, nextR::Bool )
-    temp=A.Rows[3]
-    A.Rows[3]=A.Rows[1]
+    temp=A.Rows[2]
+    A.Rows[2]=A.Rows[1]
     A.Rows[1]=temp
-    temp=A.Rows[1].RowTile
+    
     @sync begin
+        Threads.@spawn begin
+            CUDA.@sync begin 
+                if (k<A.no_tiles) 
+                    get_tilerow(A,k,A.no_tiles ,prevR, 3 )
+                end
+            end
+        end
         Threads.@spawn begin
             CUDA.@sync begin
                 recycle_tilerow(A, k2, k2+Int(!nextR),nextR,true, prevR!=nextR )
@@ -191,34 +198,30 @@ function getandset_first!(A::LargeTiledMatrix, k::Int,k2::Int, prevR::Bool, next
         end
         Threads.@spawn begin
             CUDA.@sync begin
-                get_tilerow(A, k, k+Int(!prevR), prevR, false)
+                get_tilerow(A, k, k+Int(!prevR), prevR, 2)
             end
         end
         Threads.@spawn begin
             CUDA.@sync begin
                 if (prevR!=nextR)
-                    mytranspose!(view(temp, 1:A.n, 1:A.m),view(A.Rows[3].RowTile, 1:A.n, A.m.+(1:A.m)), ndrange=(A.n,A.m))
+                    mytranspose!(view(A.Rows[1].RowTile, 1:A.n, 1:A.m),view(A.Rows[2].RowTile, 1:A.n, A.m.+(1:A.m)), ndrange=(A.n,A.m))
                 end
             end
         end
     end
-end
-
-function finish_algo!(A::LargeTiledMatrix, k::Int, lastR::Bool)
-    @sync begin
-        Threads.@spawn begin
-            CUDA.@sync begin
-                get_tilerow(A, k, k+Int(!lastR), lastR, true)
-            end
-            
-        end
-        #Threads.@spawn begin
-            #get_tilerow(A, k, A.no_tiles, R, false)
-        #end
+    if (prevR!=nextR && k2<A.no_tiles) 
+        mytranspose!(view(A.Rows[1].RowTile,1:A.n, A.m.*(A.no_tiles-k2).+(1:A.m) ), view(A.Rows[3 ].RowTile,1:A.n, A.m.+(1:A.m) ), ndrange=(A.n,A.m))
+    elseif (prevR==nextR && k2==A.no_tiles)
+        view(A.Rows[1].RowTile, 1:A.n, (1:A.m)) .= view(A.Rows[3].RowTile, 1:A.n, A.m.+(1:A.m))
     end
 end
 
-finish_algo!(A::LargeTiledMatrix, k::Int; alg="QR") = finish_algo!(A::LargeTiledMatrix, k::Int, (alg=="QR" || k ==A.no_tiles))
+function finish_algo!(A::LargeTiledMatrix, k::Int, lastR::Bool, lasttile::Bool)
+    !lasttile && CUDA.@sync get_tilerow(A, k-Int(k==A.no_tiles), A.no_tiles, lastR, 3)
+    CUDA.@sync get_tilerow(A, k, k+Int(!lastR), lastR, 1)
+end
+
+finish_algo!(A::LargeTiledMatrix, k::Int; alg="QR") = finish_algo!(A::LargeTiledMatrix, k::Int, (alg=="QR" || k ==A.no_tiles), (alg=="SVD" && k ==A.no_tiles))
 
 
 ########################################
