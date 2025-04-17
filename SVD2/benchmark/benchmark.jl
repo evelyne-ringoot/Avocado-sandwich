@@ -8,7 +8,7 @@ include("../src/KAfuncs.jl")
 include("../src/qr_kernels.jl")
 include("../src/datacomms.jl")
 include("../src/tiledalgos.jl")
-
+BLAS.set_num_threads(Threads.nthreads())
 #@inline backendstream() = CUDA.stream()
 #@inline setstream!(stream::CuStream) = CUDA.stream!(stream)
 #@inline backendstream() = AMDGPU.HIPStream()
