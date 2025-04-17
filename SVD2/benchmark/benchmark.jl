@@ -14,6 +14,8 @@ include("../src/tiledalgos.jl")
 #@inline backendstream() = AMDGPU.HIPStream()
 #@inline setstream!(s::HIPStream) = AMDGPU.stream!(stream)
 
+BLAS.set_num_threads(Threads.nthreads())
+
 
 function benchmark_ms( myfunc, args...;kwargs...)
     elapsed=0.0
@@ -70,18 +72,18 @@ end
 println( "Benchmarking KA only");
 for (i,size_i) in enumerate(sizes)
     a=inputs[i]
-    timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=4), timings[4,i])
+    timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=512), timings[4,i])
 end
 
 for (i,size_i) in enumerate(sizes)
     a=inputs[i]
-    timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=4), timings[4,i])
+    timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=512), timings[4,i])
 end
 
 
 
 inputs=[CUDA.zeros(elty,size_i, size_i) for size_i in sizes]
-inputs=[rand!(GPUArrays.default_rng(eltype(inputs[1])), x) for x in inputs]
+inputs=[rand!(x) for x in inputs]
 
 
 
