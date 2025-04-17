@@ -86,7 +86,11 @@ end
 function mygesvd!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
     Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),nbtiles,size(A,2))
-    myblockdiag!(A,Tau,nbtiles)
+    graph = capture() do
+        myblockdiag!(A,Tau,nbtiles)
+    end
+    exec = instantiate(graph)
+    CUDA.launch(exec)
     KernelAbstractions.synchronize(get_backend(A))
     unsafe_free!(Tau)
     return banddiagsvd(A,TILESIZE)
