@@ -2,7 +2,11 @@ using KernelAbstractions,GPUArrays, CUDA,Random, LinearAlgebra, Printf, Benchmar
 
 backend=KernelAbstractions.get_backend(CUDA.zeros(2))
 const TILESIZE = 64
-const QRSPLIT = 4
+const QRSPLIT = 8
+const TILESIZEMUL = 32
+const FACTORQR = Int(TILESIZE/QRSPLIT)
+const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
+
 include("../src/cusol_funcs.jl")
 include("../src/KAfuncs.jl")
 include("../src/qr_kernels.jl")
@@ -21,7 +25,7 @@ function benchmark_ms( myfunc, args...;kwargs...)
     elapsed=0.0
     best=100000
     i=0
-    numruns = 2#(size(args[1],1) < 1025) ? 20 : 1
+    numruns = 2#(size(args[1],1) < 1025) ? 20 : 2
     while(elapsed<200.0 || (i<2 &&elapsed<5000.0))
         KernelAbstractions.synchronize(backend)
         start = time_ns()
@@ -46,7 +50,7 @@ function cusvdwithcopy(a)
 end
 
 elty=Float32
-sizes=[64,128,256,512,1024,2048]
+sizes=[64,128,256,512,1024,2048, 4096]
 timings=ones(4,length(sizes))*1000000
 errors=zeros(2,length(sizes))
 
@@ -87,7 +91,7 @@ inputs=[rand!(x) for x in inputs]
 
 
 
-println( "Checking correctness GPU only");
+println( "Checking correctness GPU only")
 for (i,size_i) in enumerate(sizes[1:4])
     aout=mygesvd!(copy(inputs[i]))
     aref= Array(svdvals!(copy(inputs[i]),  alg=CUDA.CUSOLVER.QRAlgorithm()))
@@ -113,11 +117,39 @@ end
 for (i,size_i) in enumerate(sizes)
     a=inputs[i]
     timings[2,i] = min( benchmark_ms(mygesvd!,a), timings[2,i])
+end#=
+
+println( "Checking correctness GPU only")
+for (i,size_i) in enumerate(sizes[1:4])
+    aout=mygeqrf!(copy(inputs[i]))
+    aref= qeqrf!(copy(inputs[i]))
+    KernelAbstractions.synchronize(backend)
+    errors[1,i]= norm((aout-aref)./aref)/sqrt(size_i)
+end
+println( "Benchmarking CUDA only");
+for (i,size_i) in enumerate(sizes)
+    a=inputs[i]
+    timings[1,i] = min( benchmark_ms(svdvals!, a,  alg=CUDA.CUSOLVER.QRAlgorithm()), timings[1,i])
 end
 
+for (i,size_i) in enumerate(sizes)
+    a=inputs[i]
+    timings[1,i] = min( benchmark_ms(svdvals!, a,  alg=CUDA.CUSOLVER.QRAlgorithm()), timings[1,i])
+end
+println( "Benchmarking KA only");
+for (i,size_i) in enumerate(sizes)
+    a=inputs[i]
+    timings[2,i] = min( benchmark_ms(mygesvd!,a), timings[2,i])
+end
 
+for (i,size_i) in enumerate(sizes)
+    a=inputs[i]
+    timings[2,i] = min( benchmark_ms(mygesvd!,a), timings[2,i])
+end
 
-println("GPU only");
+geqrf!(A)=#
+
+println("GPU only QR");
 println( " size    RRMSE    time (ms)  cutime(ms) ");
 println(" ------  --------  ----------  ---------- ");
 for (i,size_i) in enumerate(sizes)
