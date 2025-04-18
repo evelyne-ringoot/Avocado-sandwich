@@ -58,36 +58,38 @@ end
 
 
 @kernel cpu=false  inbounds=true unsafe_indices=false function QR_unsafe_kernel2_2d!(input, input2, tau)
-    i,k = @index(Local, NTuple)
+    k,i = @index(Local, NTuple)
 
-    tilecol = @private eltype(input) (Int(TILESIZE/QRSPLIT))
+    tilecol = @private eltype(input) (FACTORQR)
     cache = @localmem eltype(input) (TILESIZE)
-    cache2 = @localmem eltype(input) (TILESIZE, QRSPLIT)
-    tau_iter = @private eltype(input) (1)
+    cache2 = @localmem eltype(input) (QRSPLIT,TILESIZE)
+    tau_iter = zero(eltype(input))
     sharedvalue = @localmem eltype(input) (2)
-
-    for j in 1:Int(TILESIZE/QRSPLIT)
-        tilecol[j] = input2[(j-1)*QRSPLIT+k, i]
+    
+    for j in 1:FACTORQR
+        tilecol[j] = input2[j+(k-1)*FACTORQR, i]
     end
 
     for iter in 1:TILESIZE
-        tmp_sum = zero(eltype(input))
+        
         tileiter= input[iter, i]
         if (i==iter)
-            for j in 1:Int(TILESIZE/QRSPLIT)
-                cache[(j-1)*QRSPLIT+k] = tilecol[j]
+            for j in 1:FACTORQR
+                cache[j+(k-1)*FACTORQR] = tilecol[j]
             end
         end
         @synchronize
-
+        
         if (i>=iter)
-            for j in 1:Int(TILESIZE/QRSPLIT)
-                tmp_sum+=tilecol[j]*cache[(j-1)*QRSPLIT+k]
+            tmp_sum = zero(eltype(input))
+            for j in 1:FACTORQR
+                tmp_sum+=tilecol[j]*cache[j+(k-1)*FACTORQR]
             end
+            cache2[k,i]=tmp_sum
             if (i==iter && k==1)
                 sharedvalue[2]=tileiter
             end
-            cache2[i,k]=tmp_sum
+            
         end
         
         @synchronize
@@ -96,37 +98,41 @@ end
             tmpsumiter = zero(eltype(input))
             tmp_sum = zero(eltype(input))
             for j = 1:QRSPLIT
-                tmpsumiter+= cache2[iter,j]
-                tmp_sum += cache2[i,j]
+                tmpsumiter+= cache2[j,iter]
+                tmp_sum += cache2[j,i]
             end
-
+            
             newvalue = sharedvalue[2] + sign(sharedvalue[2]) *sqrt(tmpsumiter+ sharedvalue[2]*sharedvalue[2])
             taucurrent = 2 / (tmpsumiter / (newvalue*newvalue)+1)
             tmp_sum2 = (tmp_sum/newvalue + tileiter)*taucurrent
-            if (i==iter && k==1)
-                tau_iter[1] = taucurrent
-            elseif (i>iter)
-                for j in 1:Int(TILESIZE/QRSPLIT)
-                    temp = tilecol[j]
+            tau_iter = i==iter ? taucurrent : tau_iter
+
+            if (i>iter)
+                for j in 1:FACTORQR
                     tilecol[j]*=newvalue
-                    tilecol[j]-=cache[(j-1)*QRSPLIT+k]*tmp_sum2
+                    tilecol[j]-=cache[j+(k-1)*FACTORQR]*tmp_sum2
                 end
             end
-            for j in 1:Int(TILESIZE/QRSPLIT)
+            
+            for j in 1:FACTORQR
                 tilecol[j]/=newvalue
             end
+            
             if (k==1)
                 input[iter, i]-=tmp_sum2
             end
+            
         end
         @synchronize
     end
     
-    for j in 1:Int(TILESIZE/QRSPLIT)
-        input2[(j-1)*QRSPLIT+k, i]=tilecol[j] 
+
+
+    for j in 1:FACTORQR
+        input2[j+(k-1)*FACTORQR, i]=tilecol[j] 
     end
     if (k==1)
-        tau[i]=tau_iter[1]
+        tau[i]=tau_iter
     end
     
 
@@ -137,60 +143,116 @@ end
     i = @index(Local, Linear)
     tilecol = @private eltype(A) (TILESIZE)
     M = @localmem eltype(A) (TILESIZE)
-    
-    for l in 1:TILESIZE
-         tilecol[l] = A[l, (g-1)*TILESIZE+i]
-    end
 
-    for k in 1:TILESIZE-1
-         M[i] = Min[i, k]
-        @synchronize
-        tmp_sum = zero(eltype(A))
-        for l in k+1:TILESIZE
-             tmp_sum += M[l] * tilecol[l]
+        for l in 1:TILESIZE
+            tilecol[l] = A[l, (g-1)*TILESIZE+i]
         end
-         tmp_sum+=tilecol[k]
-         tmp_sum*=tau[k]
 
-        for l in k+1:TILESIZE
-             tilecol[l] -= tmp_sum * M[l]
+        for k in 1:TILESIZE-1
+                M[i] = Min[i, k]
+            @synchronize
+            tmp_sum = zero(eltype(A))
+            for l in k+1:TILESIZE
+                tmp_sum += M[l] * tilecol[l]
+            end
+            tmp_sum+=tilecol[k]
+            tmp_sum*=tau[k]
+
+            for l in k+1:TILESIZE
+                tilecol[l] -= tmp_sum * M[l]
+            end
+            tilecol[k]-=tmp_sum
+            @synchronize
         end
-         tilecol[k]-=tmp_sum
-        @synchronize
-    end
 
-    for l in 1:TILESIZE
-         A[l, (g-1)*TILESIZE+i]=tilecol[l]
-    end
+        for l in 1:TILESIZE
+            A[l, (g-1)*TILESIZE+i]=tilecol[l]
+        end
+
 end
+
 
 @kernel cpu=false  inbounds=true unsafe_indices=false  function applyQorQt_unsafe_kernel2_2d!(A, B, @Const(Min), @Const(tau))
     g = @index(Group, Linear)
     i = @index(Local, Linear)
     tilecol = @private eltype(A) (TILESIZE)
-    
-    for l in 1:TILESIZE
-         tilecol[l] = B[l, i+(g-1)*TILESIZE] 
-    end
-
-    for k in 1:TILESIZE
-        tmp_sum= zero(eltype(A))       
-        for j in 1:TILESIZE
-             tmp_sum += Min[j, k] * tilecol[j]
-        end
-         tmp_sum+= A[k, i+(g-1)*TILESIZE]
-         tmp_sum *= tau[k]
-         A[k, i+(g-1)*TILESIZE] -= tmp_sum
+    Mcurr= @localmem eltype(A) (TILESIZE)
 
         for l in 1:TILESIZE
-             tilecol[l] -= tmp_sum * Min[l, k]
+            tilecol[l] = B[l, i+(g-1)*TILESIZEMUL] 
         end
-    end
-    for l in 1:TILESIZE
-         B[l, i+(g-1)*TILESIZE] = tilecol[l]
-    end
+
+        for k in 1:TILESIZE
+            tmp_sum= zero(eltype(A))
+            for j in 0:FACTORMUL-1
+                Mcurr[j*TILESIZEMUL+i]=Min[j*TILESIZEMUL+i,k]
+            end 
+            @synchronize      
+            for l in 1:TILESIZE
+                tmp_sum += Mcurr[l] * tilecol[l]
+            end
+            tmp_sum+= A[k, i+(g-1)*TILESIZEMUL]
+            tmp_sum *= tau[k]
+            A[k, i+(g-1)*TILESIZEMUL] -= tmp_sum
+
+            for l in 1:TILESIZE
+                tilecol[l] -= tmp_sum * Mcurr[l]
+            end
+            @synchronize  
+        end
+        for l in 1:TILESIZE
+            B[l, i+(g-1)*TILESIZEMUL] = tilecol[l]
+        end
+    
 end
 
+#=
+const MULSPLIT = 1
+const SIZESPLIT = Int(TILESIZE/MULSPLIT)
+@kernel cpu=false  inbounds=true unsafe_indices=false  function applyQorQt_unsafe_kernel2_2d!(A, B, @Const(Min), @Const(tau))
+    g = @index(Group, Linear)
+    i,j = @index(Local, NTuple)
+    tilecol = @private eltype(A) (SIZESPLIT)
+    Mcurr= @localmem eltype(A) (TILESIZE)
+    cache = @localmem eltype(A) (TILESIZEMUL,MULSPLIT)
 
+        for l in 1:SIZESPLIT
+            tilecol[l] = B[l+(j-1)*SIZESPLIT, i+(g-1)*TILESIZEMUL] 
+        end
+
+        for k in 1:TILESIZE
+            if (j==1)
+                for l in 0:FACTORMUL-1
+                    Mcurr[l*TILESIZEMUL+i]=Min[l*TILESIZEMUL+i,k]
+                end 
+            end
+            @synchronize     
+            tmp_sum= zero(eltype(A)) 
+            for l in 1:SIZESPLIT
+                tmp_sum += Mcurr[l+(j-1)*SIZESPLIT] * tilecol[l]
+            end
+            cache[i,j]=tmp_sum
+            @synchronize
+            tmp_sum= zero(eltype(A))
+            for l in 1:MULSPLIT
+                tmp_sum+=cache[i,l]
+            end
+            tmp_sum+= A[k, i+(g-1)*TILESIZEMUL]
+            tmp_sum *= tau[k]
+            for l in 1:SIZESPLIT
+                tilecol[l] -= tmp_sum * Mcurr[l+(j-1)*SIZESPLIT]
+            end
+            if (j==1)
+                A[k, i+(g-1)*TILESIZEMUL] -= tmp_sum
+            end
+
+            @synchronize  
+        end
+        for l in 1:SIZESPLIT
+            B[l+(j-1)*SIZESPLIT, i+(g-1)*TILESIZEMUL] = tilecol[l]
+        end
+    
+end
+=#
 
 
