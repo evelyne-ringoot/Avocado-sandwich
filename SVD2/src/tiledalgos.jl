@@ -31,7 +31,18 @@ Qtapply2_par!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, row::Int; k
                                     get_rowview(A2, singlerow ? 1 : row, colinmem+1), 
                                     get_tileview(A2, singlerow ? 1 : row,colinmem), 
                                     get_tileview(Tau, row,1, 1, TILESIZE), ndrange=( size(A,2)-colinmem*TILESIZE))#
-                          
+
+
+function brd!(A::AnyGPUMatrix{T}, noblocks) where T 
+    brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
+    brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
+end
+function gbbrd!(A::AnyGPUMatrix{T}) where T 
+    n=size(A,1)
+    for k in 1:(n-1)
+        brd!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
+    end
+end               
 
 function OOC_alg!(A::Matrix{T}, f::Function,backend::Backend, kswitch::Int,tilesinmem::Int) where {T}
     n=size(A,1)
@@ -57,7 +68,7 @@ end
 
 OOC_QR!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = OOC_alg!(A, mygeqrf!, backend,kswitch, tilesinmem)
 OOC_Bidiag!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = OOC_alg!(A, myblockdiag!, backend,kswitch, tilesinmem)
-OOC_SVD!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = banddiagsvd(OOC_Bidiag!(A,backend,kswitch=kswitch, tilesinmem=tilesinmem), TILESIZE)
+OOC_SVD!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = banddiagsvd(OOC_Bidiag!(A,backend,kswitch=kswitch, tilesinmem=tilesinmem))
 
 
 function mygeqrf!(A::AbstractGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int ;kend::Int=0) where {T}
@@ -65,6 +76,11 @@ function mygeqrf!(A::AbstractGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::I
         QRandmult!(A,Tau,k, nbtiles)
     end
     return A
+end
+
+function mygeqrf!(A::AbstractGPUMatrix{T}) where {T}
+    Tau=CUDA.zeros(T, Int(size(A,1)/TILESIZE),TILESIZE)
+    return mygeqrf!(A,Tau,Int(size(A,1)/TILESIZE))
 end
 
 function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int; kend::Int=0) where {T}
@@ -76,9 +92,16 @@ function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T},
     return A
 end
 
-function banddiagsvd(A::AbstractGPUorCPUMat, bw::Int)
-    d,e = gbbrd!(gbbrd_copy(A,bw), bw)
+function banddiagsvd(A::AbstractMatrix)
+    d,e = gbbrd!(gbbrd_copy(A,TILESIZE), TILESIZE)
     return LAPACK.bdsdc!('U', 'N', d, e)[1]
+end
+
+function banddiagsvd(A::AbstractGPUMatrix)
+    gbbrd!(A)
+    KernelAbstractions.synchronize(get_backend(A))
+    n=size(A,1)
+    return LAPACK.bdsdc!('U', 'N', Array(A[1:n+1:end]), Array(A[n+1:n+1:end]))[1]
 end
 
 function mygesvd!(A::AbstractGPUMatrix)
@@ -87,7 +110,7 @@ function mygesvd!(A::AbstractGPUMatrix)
     myblockdiag!(A,Tau,nbtiles)
     KernelAbstractions.synchronize(get_backend(A))
     unsafe_free!(Tau)
-    return banddiagsvd(A,TILESIZE)
+    return banddiagsvd(A)
 end
 
 
@@ -101,7 +124,7 @@ function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtil
 
             QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
             Qtapply2_par!(A,Tau, k,row; koffset=Int(LQ), singlerow=false)
-            fill!(get_tileview(A, row,k),0)
+
         end
     fill!(get_rowview(A',k, k+1+Int(LQ)),0)
 end
