@@ -72,8 +72,9 @@ OOC_SVD!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floo
 
 
 function mygeqrf!(A::AbstractGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int ;kend::Int=0) where {T}
+    streams=[backendstream(),backendstream()] 
     for k in 1:(nbtiles-kend)
-        QRandmult!(A,Tau,k, nbtiles)
+        QRandmult!(A,Tau,k, nbtiles,streams)
     end
     return A
 end
@@ -84,10 +85,11 @@ function mygeqrf!(A::AbstractGPUMatrix{T}) where {T}
 end
 
 function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int; kend::Int=0) where {T}
+    streams=[backendstream(),backendstream()] 
     for k in 1:(nbtiles-kend)
-        QRandmult!(A,Tau,k, nbtiles)
+        QRandmult!(A,Tau,k, nbtiles, streams)
         (k==nbtiles) && break
-        QRandmult!(A',Tau,k, nbtiles; LQ=true)
+        QRandmult!(A',Tau,k, nbtiles, streams, LQ=true)
     end
     return A
 end
@@ -114,22 +116,48 @@ function mygesvd!(A::AbstractGPUMatrix)
 end
 
 
-function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
-
+function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int, streams::Vector{streamtype};LQ::Bool=false)  where {T}
+    eventsrecorded= Array{eventtype}(undef, nbtiles-k+2)
+    currenteventidx=0
+    
+    setstream!(streams[1])
     QR1!(A,Tau, k;koffset=Int(LQ),singlerow=false)
+    currenteventidx+=1
+    eventsrecorded[currenteventidx]=event(streams[1])
     Qtapply1_par!(A, Tau, k; koffset=Int(LQ), singlerow=false)
     triu!(get_tileview(A, k+Int(LQ),k))
 
-        for row in k+1+Int(LQ):nbtiles
+    
+    if (k+1+Int(LQ) <= nbtiles)
+        setstream!(streams[2])
+        synchronize(eventsrecorded[currenteventidx])
+        QR2!(A,Tau, k, k+1+Int(LQ); koffset=Int(LQ), singlerow=false)
+        currenteventidx+=1
+        eventsrecorded[currenteventidx]=event(streams[2])
+    end
+    
 
-            QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
+        for row in k+1+Int(LQ):(nbtiles-1)
+            setstream!(streams[1])
+            synchronize(eventsrecorded[currenteventidx])
             Qtapply2_par!(A,Tau, k,row; koffset=Int(LQ), singlerow=false)
 
+            setstream!(streams[2])
+            QR2!(A,Tau, k, row+1; koffset=Int(LQ), singlerow=false)
+            currenteventidx+=1
+            eventsrecorded[currenteventidx]=event(streams[2])
+
         end
+    
+    if (k+1+Int(LQ) <= nbtiles)
+        synchronize(eventsrecorded[currenteventidx])
+        Qtapply2_par!(A,Tau, k,nbtiles; koffset=Int(LQ), singlerow=false)
+    end
+
     fill!(get_rowview(A',k, k+1+Int(LQ)),0)
 end
 
-function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false) where {T}
+function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int, streams::Vector{streamtype};LQ::Bool=false) where {T}
     nbcolgroups=(ceil(Int,(nbtiles-k)/(A.tilesinmem-1)))
     colgroupsize= ceil(Int,(nbtiles-k)/nbcolgroups)
     resizecache(A,colgroupsize+1)

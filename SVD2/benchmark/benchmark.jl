@@ -1,7 +1,17 @@
 using KernelAbstractions,GPUArrays, CUDA,Random, LinearAlgebra, Printf, BenchmarkTools
 
 const backend=CUDABackend(false, false, true)
-
+BLAS.set_num_threads(Threads.nthreads())
+@inline backendstream() = CUDA.stream()
+@inline setstream!(stream::CuStream) = CUDA.stream!(stream)
+@inline function event(stream::CuStream) 
+    e=CuEvent()
+    record(e, stream)
+    return e
+end
+const streamtype = CuStream
+const eventtype = CuEvent
+@inline synchronize(e::eventtype)=CUDA.synchronize(e)
 
 include("../src/cusol_funcs.jl")
 include("../src/KAfuncs.jl")
@@ -10,13 +20,11 @@ include("../src/brdgpu.jl")
 include("../src/datacomms.jl")
 include("../src/tiledalgos.jl")
 
-BLAS.set_num_threads(Threads.nthreads())
-#@inline backendstream() = CUDA.stream()
-#@inline setstream!(stream::CuStream) = CUDA.stream!(stream)
+
 #@inline backendstream() = AMDGPU.HIPStream()
 #@inline setstream!(s::HIPStream) = AMDGPU.stream!(stream)
+#@inline event(s::HIPStream) =  HIPEvent(stream::HIPStream)
 
-BLAS.set_num_threads(Threads.nthreads())
 
 
 function benchmark_ms( myfunc, args...;kwargs...)
