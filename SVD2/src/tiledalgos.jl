@@ -72,9 +72,9 @@ OOC_SVD!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floo
 
 
 function mygeqrf!(A::AbstractGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int ;kend::Int=0) where {T}
-    streams=[backendstream(),backendstream()] 
+
     for k in 1:(nbtiles-kend)
-        QRandmult!(A,Tau,k, nbtiles,streams)
+        QRandmult!(A,Tau,k, nbtiles)
     end
     return A
 end
@@ -85,11 +85,11 @@ function mygeqrf!(A::AbstractGPUMatrix{T}) where {T}
 end
 
 function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int; kend::Int=0) where {T}
-    streams=[backendstream(),backendstream()] 
+
     for k in 1:(nbtiles-kend)
-        QRandmult!(A,Tau,k, nbtiles, streams)
+        QRandmult!(A,Tau,k, nbtiles)
         (k==nbtiles) && break
-        QRandmult!(A',Tau,k, nbtiles, streams, LQ=true)
+        QRandmult!(A',Tau,k, nbtiles, LQ=true)
     end
     return A
 end
@@ -116,6 +116,22 @@ function mygesvd!(A::AbstractGPUMatrix)
 end
 
 
+function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
+
+    QR1!(A,Tau, k;koffset=Int(LQ),singlerow=false)
+    Qtapply1_par!(A, Tau, k; koffset=Int(LQ), singlerow=false)
+    triu!(get_tileview(A, k+Int(LQ),k))
+
+        for row in k+1+Int(LQ):(nbtiles)
+            QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
+            Qtapply2_par!(A,Tau, k,row; koffset=Int(LQ), singlerow=false)
+        end
+
+
+    fill!(get_rowview(A',k, k+1+Int(LQ)),0)
+end
+
+#=
 function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int, streams::Vector{streamtype};LQ::Bool=false)  where {T}
     eventsrecorded= Array{eventtype}(undef, nbtiles-k+2)
     currenteventidx=0
@@ -156,8 +172,9 @@ function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtil
 
     fill!(get_rowview(A',k, k+1+Int(LQ)),0)
 end
+=#
 
-function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int, streams::Vector{streamtype};LQ::Bool=false) where {T}
+function QRandmult!(A::LargeTiledMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false) where {T}
     nbcolgroups=(ceil(Int,(nbtiles-k)/(A.tilesinmem-1)))
     colgroupsize= ceil(Int,(nbtiles-k)/nbcolgroups)
     resizecache(A,colgroupsize+1)

@@ -2,6 +2,8 @@ using KernelAbstractions,GPUArrays, CUDA,Random, LinearAlgebra, Printf, Benchmar
 
 const backend=CUDABackend(false, false, true)
 BLAS.set_num_threads(Threads.nthreads())
+
+#=
 @inline backendstream() = CUDA.stream()
 @inline setstream!(stream::CuStream) = CUDA.stream!(stream)
 @inline function event(stream::CuStream) 
@@ -13,6 +15,11 @@ const streamtype = CuStream
 const eventtype = CuEvent
 @inline synchronize(e::eventtype)=CUDA.synchronize(e)
 
+#@inline backendstream() = AMDGPU.HIPStream()
+#@inline setstream!(s::HIPStream) = AMDGPU.stream!(stream)
+#@inline event(s::HIPStream) =  HIPEvent(stream::HIPStream)
+=#
+
 include("../src/cusol_funcs.jl")
 include("../src/KAfuncs.jl")
 include("../src/qr_kernels.jl")
@@ -21,9 +28,6 @@ include("../src/datacomms.jl")
 include("../src/tiledalgos.jl")
 
 
-#@inline backendstream() = AMDGPU.HIPStream()
-#@inline setstream!(s::HIPStream) = AMDGPU.stream!(stream)
-#@inline event(s::HIPStream) =  HIPEvent(stream::HIPStream)
 
 
 
