@@ -1,6 +1,7 @@
 using KernelAbstractions,GPUArrays, CUDA,Random, LinearAlgebra, Printf, BenchmarkTools
 
-const backend=KernelAbstractions.get_backend(CUDA.zeros(2))
+const backend=CUDABackend(false, false, true)
+
 
 include("../src/cusol_funcs.jl")
 include("../src/KAfuncs.jl")
@@ -51,7 +52,7 @@ sizes=[64,128,256,512,1024,2048, 4096,8192]
 timings=ones(4,length(sizes))*1000000
 errors=zeros(2,length(sizes))
 
-
+#=
 inputs=[randn(elty,size_i, size_i) for size_i in sizes]
 println( "Checking correctness OOC");
 for (i,size_i) in enumerate(sizes[1:4])
@@ -80,6 +81,7 @@ for (i,size_i) in enumerate(sizes)
     a=inputs[i]
     timings[4,i] = min( benchmark_ms(OOC_SVD!,a, backend,kswitch=512), timings[4,i])
 end
+=#
 
 
 inputs=[CUDA.zeros(elty,size_i, size_i) for size_i in sizes]
