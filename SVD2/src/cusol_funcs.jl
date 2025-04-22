@@ -86,7 +86,7 @@ function gbbrd!(AB::AbstractMatrix{$elty}, bandwidth::Int)
     tempvar1  = Vector{$elty}(undef, 0)
     tempvar2  = Vector{$elty}(undef, 0)
     tempvar3  = Vector{$elty}(undef, 0)
-    info  = Ref{BlasInt}()
+    info  = Ref{BlasInt}(0)
     
         ccall((@blasfunc($gebrd), libblastrampoline), Cvoid, 
                 (Ref{UInt8}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt}, Ref{BlasInt},  Ptr{$elty}, Ref{BlasInt},
@@ -95,7 +95,6 @@ function gbbrd!(AB::AbstractMatrix{$elty}, bandwidth::Int)
                     'N', m, n, Ref{BlasInt}(0),Ref{BlasInt}(0), bandwidth,  AB, bandwidth+1, 
                     d, e, tempvar1, m,tempvar2,n,tempvar3,m,
                     work,  info)
-                    Base.Libc.flush_cstdio()
     
     #chklapackerror(info[])
     return d,e
@@ -110,15 +109,6 @@ function gbbrd_copy(A::AbstractMatrix, bandwidth::Int)
     return AB
 end
 
-
-function gbbrd_copy(A::AbstractGPUMatrix, bandwidth::Int)
-    AB=similar(A,bandwidth+1,size(A,2))
-    diagcopyto!(AB,A,bandwidth)
-    ABcpu=ones(eltype(A),bandwidth+1,size(A,2))
-    copyto!(ABcpu,AB)
-    KernelAbstractions.synchronize(get_backend(A))
-    return ABcpu
-end
 
 
 
