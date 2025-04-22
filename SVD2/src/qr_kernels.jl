@@ -1,6 +1,9 @@
-using KernelAbstractions.Extras: @unroll
-using KernelAbstractions
 
+const TILESIZE = 64
+const QRSPLIT = 8
+const TILESIZEMUL = 32
+const FACTORQR = Int(TILESIZE/QRSPLIT)
+const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
 
 @kernel cpu=false  inbounds=true unsafe_indices=false function QR_unsafe_kernel_2d!(input, tau) 
     i = @index(Local,Linear)
