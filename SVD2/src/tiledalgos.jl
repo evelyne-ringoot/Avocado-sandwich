@@ -11,6 +11,9 @@
 @inline @inbounds get_rowview(A::AbstractGPUorCPUMat{T}, row::Int, startcol::Int, TILE_SIZEx::Int=TILESIZE, TILE_SIZEy::Int=TILESIZE; endcol::Int=Int(size(A,2)/TILE_SIZEy)) where T =  
             view(A, (row-1)*TILE_SIZEx .+(1:TILE_SIZEx),
                 ((startcol-1)*TILE_SIZEy +1):endcol*TILE_SIZEy)
+@inline @inbounds get_blockview(A::AbstractGPUorCPUMat{T}, startrow::Int, startcol::Int, TILE_SIZEx::Int=TILESIZE, TILE_SIZEy::Int=TILESIZE) where T =  
+                view(A, ((startrow-1)*TILE_SIZEx .+1):size(A,1),
+                    ((startcol-1)*TILE_SIZEy +1):size(A,2))
 get_kernel_dims(::KernelAbstractions.Kernel{B,S}) where {B,S} = S.parameters[1]
 
 
@@ -30,8 +33,11 @@ Qtapply2_par!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, row::Int; k
                                     applyQorQt_unsafe_kernel2_2d!(backend, (TILESIZEMUL))(get_rowview(A,singlerow ? 1 : k+koffset, colinmem+1), 
                                     get_rowview(A2, singlerow ? 1 : row, colinmem+1), 
                                     get_tileview(A2, singlerow ? 1 : row,colinmem), 
-                                    get_tileview(Tau, 1,row, TILESIZE,1), ndrange=( size(A,2)-colinmem*TILESIZE))#
-
+                                    get_tileview(Tau, 1,row, TILESIZE,1), ndrange=( size(A,2)-colinmem*TILESIZE))
+Qtapply2_parfused!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; koffset::Int=0) where T = 
+                                    applyQorQt_unsafe_kernel2_fused!(backend, (TILESIZEMUL))(get_rowview(A, k+koffset, k+1), 
+                                    get_blockview(A,  k+1+koffset, k+1), get_rowview(A', k,k+1+koffset)', 
+                                    get_rowview(Tau, 1,k+1+koffset, TILESIZE,1), cld(size(A,2)-(k+koffset)*TILESIZE,TILESIZE), ndrange=( size(A,2)-k*TILESIZE))
 
 function brd!(A::AnyGPUMatrix{T}, noblocks) where T 
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
@@ -124,10 +130,9 @@ function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtil
 
         for row in k+1+Int(LQ):(nbtiles)
             QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
-            Qtapply2_par!(A,Tau, k,row; koffset=Int(LQ), singlerow=false)
         end
 
-
+    Qtapply2_parfused!(A, Tau, k; koffset=Int(LQ))
     fill!(get_rowview(A',k, k+1+Int(LQ)),0)
 end
 
