@@ -178,13 +178,20 @@ end
 @kernel cpu=false  inbounds=true unsafe_indices=false  function applyQorQt_unsafe_kernel2_2d!(A, B, @Const(Min), @Const(tau))
     g = @index(Group, Linear)
     i = @index(Local, Linear)
-    tilecol = @private eltype(A) (TILESIZE)
+    tilecol = @private eltype(A) (2TILESIZE)
     Mcurr= @localmem eltype(A) (TILESIZE)
+    tausmem = @localmem eltype(A) (TILESIZE)
+
 
         for l in 1:TILESIZE
             tilecol[l] = B[l, i+(g-1)*TILESIZEMUL] 
         end
-
+        for l in 1:TILESIZE
+            tilecol[l+TILESIZE] = A[l, i+(g-1)*TILESIZEMUL] 
+        end
+        for j in 0:FACTORMUL-1
+            tausmem[j*TILESIZEMUL+i]=tau[j*TILESIZEMUL+i]
+        end 
         for k in 1:TILESIZE
             tmp_sum= zero(eltype(A))
             for j in 0:FACTORMUL-1
@@ -194,14 +201,18 @@ end
             for l in 1:TILESIZE
                 tmp_sum += Mcurr[l] * tilecol[l]
             end
-            tmp_sum+= A[k, i+(g-1)*TILESIZEMUL]
-            tmp_sum *= tau[k]
-            A[k, i+(g-1)*TILESIZEMUL] -= tmp_sum
+            tmp_sum+= tilecol[k+TILESIZE] 
+            tmp_sum *= tausmem[k]
+            tilecol[k+TILESIZE] -= tmp_sum
 
             for l in 1:TILESIZE
                 tilecol[l] -= tmp_sum * Mcurr[l]
             end
             @synchronize  
+        end
+
+        for l in 1:TILESIZE
+            A[l, i+(g-1)*TILESIZEMUL] = tilecol[l+TILESIZE]
         end
         for l in 1:TILESIZE
             B[l, i+(g-1)*TILESIZEMUL] = tilecol[l]
@@ -256,6 +267,115 @@ const SIZESPLIT = Int(TILESIZE/MULSPLIT)
         end
     
 end
+
+@kernel cpu=false  inbounds=true unsafe_indices=false  function applyQorQt_unsafe_kernel2_2d!(A, B, @Const(Min), @Const(tau))
+    g = @index(Group, Linear)
+    i,j = @index(Local, NTuple)
+    tilecol = @private eltype(A) (2TILESIZE)
+    Mcurr= @localmem eltype(A) (TILESIZE,2)
+    tausmem = @localmem eltype(A) (TILESIZE)
+
+        if (j==1)
+           for l in 1:TILESIZE
+              tilecol[l] = B[l, i+(g-1)*TILESIZEMUL]
+           end
+           for l in 1:TILESIZE
+              tilecol[l+TILESIZE] = A[l, i+(g-1)*TILESIZEMUL]
+           end
+        end
+        if (j==2)
+           for l in 1:FACTORMUL
+              tausmem[l+FACTORMUL*(i-1)]=tau[l+FACTORMUL*(i-1)]
+           end
+        end
+        curridx=1
+
+        for k in 1:TILESIZE
+            tmp_sum= zero(eltype(A))
+            if (j==2)
+               for l in 1:FACTORMUL
+                  Mcurr[l+FACTORMUL*(i-1),curridx]=Min[l+FACTORMUL*(i-1),k]
+               end
+            end
+            @synchronize
+            if (j==1)
+               for l in 1:TILESIZE
+                  tmp_sum += Mcurr[l,curridx] * tilecol[l]
+               end
+
+               tmp_sum+= tilecol[k+TILESIZE]
+               tmp_sum *= tausmem[k]
+               tilecol[k+TILESIZE] -= tmp_sum
+
+               for l in 1:TILESIZE
+                  tilecol[l] -= tmp_sum * Mcurr[l,curridx]
+               end
+            end
+            curridx=3-curridx
+        end
+        @synchronize
+        if (j==1)
+           for l in 1:TILESIZE
+              A[l, i+(g-1)*TILESIZEMUL] = tilecol[l+TILESIZE]
+           end
+           for l in 1:TILESIZE
+              B[l, i+(g-1)*TILESIZEMUL] = tilecol[l]
+           end
+        end
+
+end
+
+@kernel cpu=false  inbounds=true unsafe_indices=false  function applyQorQt_unsafe_kernel2_2d!(A, B, @Const(Min), @Const(tau))
+    g = @index(Group, Linear)
+    i = @index(Local, Linear)
+    tilecol = @private eltype(A) (2TILESIZE)
+    Mcurr= @localmem eltype(A) (TILESIZE,2)
+    tausmem = @localmem eltype(A) (TILESIZE)
+    cache = @private eltype(A) (4)
+
+        for l in 1:TILESIZE
+            tilecol[l] = B[l, i+(g-1)*TILESIZEMUL] 
+        end
+        for l in 1:TILESIZE
+            tilecol[l+TILESIZE] = A[l, i+(g-1)*TILESIZEMUL] 
+        end
+        for j in 0:FACTORMUL-1
+            tausmem[j*TILESIZEMUL+i]=tau[j*TILESIZEMUL+i]
+        end 
+        
+        for k in 1:TILESIZE
+            for l in 1:4
+                cache[l]=zero(eltype(A))
+            end
+            for j in 0:FACTORMUL-1
+                Mcurr[j*TILESIZEMUL+i]=Min[j*TILESIZEMUL+i,k]
+            end 
+            @synchronize      
+            for l in 1:4:TILESIZE
+                for j in 0:3
+                    cache[l+j]+=Mcurr[l+j] * tilecol[l+j]
+                end
+            end
+            tmp_sum= (cache[1]+cache[2]) + (cache[3]+cache[4])
+            tmp_sum+= tilecol[k+TILESIZE] 
+            tmp_sum *= tausmem[k]
+            tilecol[k+TILESIZE] -= tmp_sum
+
+            for l in 1:TILESIZE
+                tilecol[l] -= tmp_sum * Mcurr[l]
+            end
+            @synchronize  
+        end
+
+        for l in 1:TILESIZE
+            A[l, i+(g-1)*TILESIZEMUL] = tilecol[l+TILESIZE]
+        end
+        for l in 1:TILESIZE
+            B[l, i+(g-1)*TILESIZEMUL] = tilecol[l]
+        end
+    
+end
+
 =#
 
 
