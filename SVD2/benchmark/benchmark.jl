@@ -6,7 +6,7 @@ const backend=CUDABackend(false, false, true)
 
 
 elty=Float32
-sizes=[64,128,256,512,1024,2048, 4096,8192]
+sizes=[64,128,256,512,1024,2048, 4096,8192,8192,8192*2]
 timings=ones(4,length(sizes))*1000000
 errors=zeros(2,length(sizes))
 
