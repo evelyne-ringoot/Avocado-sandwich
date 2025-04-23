@@ -1,8 +1,8 @@
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.11.4"
+julia_version = "1.11.5"
 manifest_format = "2.0"
-project_hash = "794aa50545383aa0fa3ee357f33e8cdc06e785e1"
+project_hash = "e2258f18b4f7c515ef0b0dfe2a062e44419ba1c5"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -64,12 +64,6 @@ version = "0.5.1"
 [[deps.Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
-
-[[deps.BenchmarkTools]]
-deps = ["Compat", "JSON", "Logging", "Printf", "Profile", "Statistics", "UUIDs"]
-git-tree-sha1 = "e38fbc49a620f5d0b660d7f543db1009fe0f8336"
-uuid = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
-version = "1.6.0"
 
 [[deps.CEnum]]
 git-tree-sha1 = "389ad5c84de1ae7cf0e28e381131c98ea87d54fc"
@@ -264,12 +258,6 @@ git-tree-sha1 = "a007feb38b422fbdab534406aeca1b86823cb4d6"
 uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
 version = "1.7.0"
 
-[[deps.JSON]]
-deps = ["Dates", "Mmap", "Parsers", "Unicode"]
-git-tree-sha1 = "31e996f0a15c7b280ba9f76636b3ff9e2ae58c9a"
-uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
-version = "0.21.4"
-
 [[deps.JuliaNVTXCallbacks_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "af433a10f3942e882d3c671aacb203e006a5808f"
@@ -382,10 +370,6 @@ git-tree-sha1 = "ec4f7fbeab05d7747bdf98eb74d130a2a2ed298d"
 uuid = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
 version = "1.2.0"
 
-[[deps.Mmap]]
-uuid = "a63ad114-7e13-5084-954f-fe012c677804"
-version = "1.11.0"
-
 [[deps.MozillaCACerts_jll]]
 uuid = "14a3606d-f60d-562e-9121-12d972cd8159"
 version = "2023.12.12"
@@ -415,12 +399,6 @@ version = "0.3.27+1"
 git-tree-sha1 = "cc4054e898b852042d7b503313f7ad03de99c3dd"
 uuid = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 version = "1.8.0"
-
-[[deps.Parsers]]
-deps = ["Dates", "PrecompileTools", "UUIDs"]
-git-tree-sha1 = "44f6c1f38f77cafef9450ff93946c53bd9ca16ff"
-uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.8.2"
 
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "Random", "SHA", "TOML", "Tar", "UUIDs", "p7zip_jll"]
@@ -460,10 +438,6 @@ version = "2.4.0"
 [[deps.Printf]]
 deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
-version = "1.11.0"
-
-[[deps.Profile]]
-uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
 version = "1.11.0"
 
 [[deps.Random]]
