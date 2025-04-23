@@ -44,7 +44,7 @@ function gbbrd!(A::AnyGPUMatrix{T}) where T
     end
 end               
 
-function OOC_alg!(A::Matrix{T}, f::Function,backend::Backend, kswitch::Int,tilesinmem::Int) where {T}
+function OOC_alg!(A::Matrix{T}, f::Function, kswitch::Int,tilesinmem::Int) where {T}
     n=size(A,1)
     nb_tiles= Int(n/TILESIZE)
     Tau=KernelAbstractions.zeros(backend, T, TILESIZE, nb_tiles)
@@ -66,9 +66,9 @@ function OOC_alg!(A::Matrix{T}, f::Function,backend::Backend, kswitch::Int,tiles
     return A  
 end
 
-OOC_QR!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = OOC_alg!(A, mygeqrf!, backend,kswitch, tilesinmem)
-OOC_Bidiag!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = OOC_alg!(A, myblockdiag!, backend,kswitch, tilesinmem)
-OOC_SVD!(A::Matrix, backend::Backend; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = banddiagsvd(OOC_Bidiag!(A,backend,kswitch=kswitch, tilesinmem=tilesinmem))
+OOC_QR!(A::Matrix; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = OOC_alg!(A, mygeqrf!, kswitch, tilesinmem)
+OOC_Bidiag!(A::Matrix; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = OOC_alg!(A, myblockdiag!, kswitch, tilesinmem)
+OOC_SVD!(A::Matrix; kswitch::Int=256, tilesinmem::Int=max(floor(Int,kswitch^2/4)+1,2)) = banddiagsvd(OOC_Bidiag!(A,kswitch=kswitch, tilesinmem=tilesinmem))
 
 
 function mygeqrf!(A::AbstractGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int ;kend::Int=0) where {T}
