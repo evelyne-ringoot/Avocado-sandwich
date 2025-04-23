@@ -16,21 +16,21 @@ get_kernel_dims(::KernelAbstractions.Kernel{B,S}) where {B,S} = S.parameters[1]
 
 QR1!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; koffset::Int=0, singlerow::Bool=false, colinmem::Int=k) where T = 
                                     QR_unsafe_kernel_2d!(backend, (TILESIZE))( get_tileview(A, singlerow ? 1 : k+koffset,colinmem), 
-                                    get_tileview(Tau, k, 1, 1, TILESIZE), ndrange=(TILESIZE)) 
+                                    get_tileview(Tau, 1,k, TILESIZE,1), ndrange=(TILESIZE)) 
 QR2!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, row::Int; koffset::Int=0, singlerow::Bool=false, A2::AnyGPUMatrix{T}=A, colinmem::Int=k) where T =
                                     QR_unsafe_kernel2_2d!(backend, (QRSPLIT, TILESIZE))(get_tileview(A,singlerow ? 1 : k+koffset,colinmem), 
                                     get_tileview(A2, singlerow ? 1 : row,colinmem), 
-                                    get_tileview(Tau, row, 1, 1, TILESIZE), ndrange=(QRSPLIT,TILESIZE))
+                                    get_tileview(Tau, 1,row,  TILESIZE,1), ndrange=(QRSPLIT,TILESIZE))
 
 Qtapply1_par!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; koffset::Int=0, singlerow::Bool=false, colinmem::Int=k) where T = 
                                     applyQorQt_unsafe_kernel_2d!(backend, (TILESIZE))(get_rowview(A, singlerow ? 1 : k+koffset, colinmem+1), 
                                     get_tileview(A, singlerow ? 1 : k+koffset,colinmem), 
-                                    get_tileview(Tau, k,1, 1, TILESIZE), ndrange=( size(A,2)-colinmem*TILESIZE) )
+                                    get_tileview(Tau, 1,k, TILESIZE,1), ndrange=( size(A,2)-colinmem*TILESIZE) )
 Qtapply2_par!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, row::Int; koffset::Int=0, singlerow::Bool=false, A2::AnyGPUMatrix{T}=A, colinmem::Int=k) where T = 
                                     applyQorQt_unsafe_kernel2_2d!(backend, (TILESIZEMUL))(get_rowview(A,singlerow ? 1 : k+koffset, colinmem+1), 
                                     get_rowview(A2, singlerow ? 1 : row, colinmem+1), 
                                     get_tileview(A2, singlerow ? 1 : row,colinmem), 
-                                    get_tileview(Tau, row,1, 1, TILESIZE), ndrange=( size(A,2)-colinmem*TILESIZE))#
+                                    get_tileview(Tau, 1,row, TILESIZE,1), ndrange=( size(A,2)-colinmem*TILESIZE))#
 
 
 function brd!(A::AnyGPUMatrix{T}, noblocks) where T 
@@ -47,7 +47,7 @@ end
 function OOC_alg!(A::Matrix{T}, f::Function,backend::Backend, kswitch::Int,tilesinmem::Int) where {T}
     n=size(A,1)
     nb_tiles= Int(n/TILESIZE)
-    Tau=KernelAbstractions.zeros(backend, T, nb_tiles, TILESIZE)
+    Tau=KernelAbstractions.zeros(backend, T, TILESIZE, nb_tiles)
     
     if (n>kswitch*TILESIZE)
         inputmatrix=LargeTiledMatrix(A, backend, tilesinmem)
@@ -80,7 +80,7 @@ function mygeqrf!(A::AbstractGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::I
 end
 
 function mygeqrf!(A::AbstractGPUMatrix{T}) where {T}
-    Tau=CUDA.zeros(T, Int(size(A,1)/TILESIZE),TILESIZE)
+    Tau=CUDA.zeros(T, TILESIZE, Int(size(A,1)/TILESIZE))
     return mygeqrf!(A,Tau,Int(size(A,1)/TILESIZE))
 end
 
@@ -108,7 +108,7 @@ end
 
 function mygesvd!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
-    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),nbtiles,size(A,2))
+    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),size(A,2),nbtiles)
     myblockdiag!(A,Tau,nbtiles)
     KernelAbstractions.synchronize(get_backend(A))
     unsafe_free!(Tau)
