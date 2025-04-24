@@ -6,7 +6,7 @@ for (i,size_i) in enumerate(sizes)
     aout=mygesvd!(copy(input))
     aref=vendorsvd!(copy(input))
     KernelAbstractions.synchronize(backend)
-    if (isnothing(aref))
+    if (!isnothing(aref))
         aref= Array(aref) #Array because mygesvd returns CPU Array
         errors[1,i]= norm((aout-aref)./aref)/sqrt(size_i)
     end

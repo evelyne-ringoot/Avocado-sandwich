@@ -4,7 +4,8 @@
 #include openblas gbbrd from nextLA
 #remove some of the copies by fixing copies between views of GPU and CPU arrays
 #naming conventions
-
+const AbstractGPUorCPUMat{T} = Union{AbstractGPUArray{T, 2}, AbstractMatrix{T}, Adjoint{<:AbstractMatrix{T}}, Adjoint{<:AbstractGPUArray{T, 2}}}
+const AbstractGPUorCPUArray{T} = Union{AbstractGPUArray{T}, AbstractArray{T}}
 @inline @inbounds get_tileview(A::AbstractGPUorCPUMat{T}, row::Int , col::Int, TILE_SIZEx::Int=TILESIZE, TILE_SIZEy::Int=TILESIZE ) where T = 
             view(A, (row-1)*TILE_SIZEx.+(1:TILE_SIZEx),
                 (col-1)*TILE_SIZEy.+(1:TILE_SIZEy))
@@ -109,12 +110,12 @@ function banddiagsvd(A::AbstractGPUMatrix)
     gbbrd!(A)
     KernelAbstractions.synchronize(get_backend(A))
     n=size(A,1)
-    d=removezeros.(Array(A[1:n+1:end]))
-    e=removezeros.(Array(A[n+1:n+1:end]))
+    d=(Array(A[1:n+1:end]))
+    e=(Array(A[n+1:n+1:end]))
     return LAPACK.bdsdc!('U', 'N', d, e)[1]
 end
 
-LAPACK.bdsdc!('U', 'N', d::AbstractVector{Float16}, e::AbstractVector{Float16}) = LAPACK.bdsdc!('U', 'N', Float32.(d), Float32.(e))
+LAPACK.bdsdc!(a, b, d::AbstractVector{Float16}, e::AbstractVector{Float16}) = LAPACK.bdsdc!(a, b, Float32.(d), Float32.(e))
 
 function mygesvd!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
