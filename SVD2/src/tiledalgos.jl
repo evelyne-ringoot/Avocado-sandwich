@@ -37,7 +37,7 @@ Qtapply2_par!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, row::Int; k
 Qtapply2_parfused!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; koffset::Int=0) where T = 
                                     applyQorQt_unsafe_kernel2_fused!(backend, (TILESIZEMUL))(get_rowview(A, k+koffset, k+1), 
                                     get_blockview(A,  k+1+koffset, k+1), get_rowview(A', k,k+1+koffset)', 
-                                    get_rowview(Tau, 1,k+1+koffset, TILESIZE,1), cld(size(A,2)-(k+koffset)*TILESIZE,TILESIZE), ndrange=( size(A,2)-k*TILESIZE))
+                                    get_rowview(Tau, 1,k+1+koffset, TILESIZE,1), Int((size(A,2)-(k+koffset)*TILESIZE)/TILESIZE), ndrange=( size(A,2)-k*TILESIZE))
 
 function brd!(A::AnyGPUMatrix{T}, noblocks) where T 
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
@@ -105,16 +105,24 @@ function banddiagsvd(A::AbstractMatrix)
     return LAPACK.bdsdc!('U', 'N', d, e)[1]
 end
 
+function removezeros(a)
+    a<0 ? min(a,-1e-6) : max(a,1e-6)
+    return a 
+end
+
+
 function banddiagsvd(A::AbstractGPUMatrix)
     gbbrd!(A)
     KernelAbstractions.synchronize(get_backend(A))
     n=size(A,1)
-    return LAPACK.bdsdc!('U', 'N', Array(A[1:n+1:end]), Array(A[n+1:n+1:end]))[1]
+    d=removezeros.(Array(A[1:n+1:end]))
+    e=removezeros.(Array(A[n+1:n+1:end]))
+    return LAPACK.bdsdc!('U', 'N', d, e)[1]
 end
 
 function mygesvd!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
-    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),size(A,2),nbtiles)
+    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),TILESIZE,nbtiles)
     myblockdiag!(A,Tau,nbtiles)
     KernelAbstractions.synchronize(get_backend(A))
     unsafe_free!(Tau)
@@ -130,6 +138,7 @@ function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtil
 
         for row in k+1+Int(LQ):(nbtiles)
             QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
+            #Qtapply2_par!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
         end
 
     Qtapply2_parfused!(A, Tau, k; koffset=Int(LQ))

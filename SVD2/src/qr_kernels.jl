@@ -230,6 +230,8 @@ end
 
     currstartrow=0
 
+    #@print nbtiles " " i " " g "\n"
+
     for l in 1:TILESIZE
         tilecolA[l] = A[l, i+(g-1)*TILESIZEMUL] 
     end
@@ -238,7 +240,8 @@ end
             tilecol[l] = B[currstartrow+l, i+(g-1)*TILESIZEMUL] 
         end
         for j in 0:FACTORMUL-1
-            tausmem[j*TILESIZEMUL+i,currtile+1]=tau[j*TILESIZEMUL+i,currtile+1]
+            tausmem[j*TILESIZEMUL+i,currtile+1]=tau[j*TILESIZEMUL+i,currtile]
+
         end 
         for k in 1:TILESIZE
             tmp_sum= zero(eltype(A))
@@ -261,10 +264,10 @@ end
         for l in 1:TILESIZE
             B[currstartrow+l, i+(g-1)*TILESIZEMUL] = tilecol[l]
         end
-        currstartrow+-1
+        currstartrow+=TILESIZE
     end
     for l in 1:TILESIZE
-        A[l, i+(g-1)*TILESIZEMUL] = tilecol[l+TILESIZE]
+        A[l, i+(g-1)*TILESIZEMUL] = tilecolA[l]
     end
 
         
