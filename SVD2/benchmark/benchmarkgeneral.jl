@@ -4,9 +4,12 @@ println( "Checking correctness GPU only")
 for (i,size_i) in enumerate(sizes)
     input=rand!(KernelAbstractions.zeros(backend,elty,size_i, size_i))
     aout=mygesvd!(copy(input))
-    aref= Array(vendorsvd!(copy(input))) #Array because mygesvd returns CPU Array
+    aref=vendorsvd!(copy(input))
     KernelAbstractions.synchronize(backend)
-    errors[1,i]= norm((aout-aref)./aref)/sqrt(size_i)
+    if (isnothing(aref))
+        aref= Array(aref) #Array because mygesvd returns CPU Array
+        errors[1,i]= norm((aout-aref)./aref)/sqrt(size_i)
+    end
 end
 
 println( "warmup vendor only");
