@@ -1,9 +1,9 @@
 using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf
 
-using AMDGPU
-AMDGPU.versioninfo()
-const backend=KernelAbstractions.get_backend(AMDGPU.zeros(2))
-@inline vendorsvd!(input::ROCArray) = AMDGPU.rocSOLVER.gesvd!('N','N',input)
+using Metal
+Metal.versioninfo()
+const backend=KernelAbstractions.get_backend( MtlArray([1]))
+@inline vendorsvd!(input::MtlArray) = none
 
 elty=Float32
 
