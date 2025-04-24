@@ -1,51 +1,7 @@
 using LinearAlgebra.LAPACK: chkargsok, chklapackerror, chktrans, chkside, chkdiag, chkuplo
 using LinearAlgebra: BlasInt, checksquare
 
-#=
-if ( Base.find_package("CUDA") !== nothing)
 
-for (bname, fname,elty) in ((:cusolverDnSgeqrf_bufferSize, :cusolverDnSgeqrf, :Float32),
-    (:cusolverDnSgeqrf_bufferSize, :cusolverDnSgeqrf, :Float32))
-    @eval begin
-        function geqrf!(A::StridedCuMatrix{$elty}, tau::CuVector{$elty}, m,n,lda,dh,buffer, buffersize )
-            CUSOLVER.$fname(dh, m, n, A, lda, tau, buffer, buffersize, dh.info)
-            info = CUDA.@allowscalar dh.info[1]
-            chkargsok(BlasInt(info))
-            A
-        end
-        function geqrf_buffersize(A::StridedCuMatrix{$elty})
-            out = Ref{Cint}(0)
-            CUSOLVER.$bname(CUSOLVER.dense_handle(), size(A,1), size(A,2), A, max(1, stride(A, 2)), out)
-            return out[] * sizeof($elty)
-        end
-    end
-end
-
-for (bname, fname, elty) in ((:cusolverDnSormqr_bufferSize, :cusolverDnSormqr, :Float32),
-(:cusolverDnDormqr_bufferSize, :cusolverDnDormqr, :Float64))
-    @eval begin
-        function ormqr!(C::StridedCuVecOrMat{$elty},
-            A::StridedCuMatrix{$elty},
-            tau::CuVector{$elty},
-             dh, m,n,k,lda,ldc,buffersize,buffer)
-            CUSOLVER.$fname(dh, 'L', 'T', m, n, k, A, lda, tau, C, ldc, buffer, buffersize, dh.info)
-            info = CUDA.@allowscalar dh.info[1]
-            chkargsok(BlasInt(info))
-            return C
-        end
-        function ormqr_bufferSize( A::StridedCuVecOrMat{$elty}, tau::CuVector{$elty}, C::StridedCuVecOrMat{$elty})
-            out = Ref{Cint}(0)
-            CUSOLVER.$bname(CUSOLVER.dense_handle(), 'L', 'T', size(C,1), size(C,2), length(tau), A, max(1, stride(A, 2)), tau, C, max(1, stride(C, 2)), out)
-            return out[] * sizeof($elty)
-        end
-
-
-
-    end
-end
-end
-
-=#
 const AbstractGPUorCPUMat{T} = Union{AbstractGPUArray{T, 2}, AbstractMatrix{T}, Adjoint{<:AbstractMatrix{T}}, Adjoint{<:AbstractGPUArray{T, 2}}}
 const AbstractGPUorCPUArray{T} = Union{AbstractGPUArray{T}, AbstractArray{T}}
 
@@ -109,6 +65,6 @@ function gbbrd_copy(A::AbstractMatrix, bandwidth::Int)
     return AB
 end
 
-
+gbbrd!(AB::AbstractMatrix{Float16}, bandwidth::Int) = gbbrd!(Float32.(AB), bandwidth) 
 
 
