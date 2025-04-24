@@ -105,12 +105,6 @@ function banddiagsvd(A::AbstractMatrix)
     return LAPACK.bdsdc!('U', 'N', d, e)[1]
 end
 
-function removezeros(a)
-    a<0 ? min(a,-1e-6) : max(a,1e-6)
-    return a 
-end
-
-
 function banddiagsvd(A::AbstractGPUMatrix)
     gbbrd!(A)
     KernelAbstractions.synchronize(get_backend(A))
@@ -119,6 +113,8 @@ function banddiagsvd(A::AbstractGPUMatrix)
     e=removezeros.(Array(A[n+1:n+1:end]))
     return LAPACK.bdsdc!('U', 'N', d, e)[1]
 end
+
+LAPACK.bdsdc!('U', 'N', d::AbstractVector{Float16}, e::AbstractVector{Float16}) = LAPACK.bdsdc!('U', 'N', Float32.(d), Float32.(e))
 
 function mygesvd!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
