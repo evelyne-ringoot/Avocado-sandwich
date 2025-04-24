@@ -184,11 +184,17 @@ void run_all_configs(
 
 int main(int argc, char **argv) {
     std::string test_data_dir = ".";
-
-    //int n = std::stoi(argv[1]);
-    auto configs_test = std::vector<BenchmarkConfig>{
-        {{64},{128},{256},{512},{1024},{2048}, {4096}},
-    };
+    std::vector<BenchmarkConfig> configs_test;
+    if (argc==0){
+        configs_test = std::vector<BenchmarkConfig>{
+            {{64},{128},{256},{512},{1024},{2048}, {4096}},
+        };
+    }else(
+        int n = std::stoi(argv[1]);
+        configs_test = std::vector<BenchmarkConfig>{
+            {n},
+        };
+    )
 
     run_all_configs(Phase::WARMUP,  configs_test);
     run_all_configs(Phase::BENCHMARK, configs_test);
