@@ -8,7 +8,12 @@ cd Avocado-sandwich/SVD2/
 ../../-1.11.5/bin/julia --project=. 
 julia> Pkg.instantiate()
 julia> exit()
-../../-1.11.5/bin/julia --project=. -t auto benchmark/benchmark_cuda.jl
+../../-1.11.5/bin/julia --project=. -t auto benchmark/benchmark.jl CUDA S SMALL
 ```
 
-Replace the last line file with the applicable GPU: `benchmark_amd.jl` for AMD, `benchmark_oneapi.jl` for Intel, and `benchmark_metal.jl` for Apple.
+Options
+Param 1: CUDA/AMD/ONE/METAL
+Param 2: S/D/H (precision) 
+Param 3: SMALL/LARGE/SPECIFY (which sizes to run)
+Param 4: (only applicable if option 3 is SPECIFY) int (size to benchmark)
+

@@ -1,30 +1,58 @@
 using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf
+
+if (ARGS[1]=="AMD")
+    include("vendorspecific/benchmark_amd.jl")
+elseif (ARGS[1]=="CUDA")
+    include("vendorspecific/benchmark_cuda.jl")
+elseif (ARGS[1]=="ONE")
+    include("vendorspecific/benchmark_oneapi.jl")
+elseif (ARGS[1]=="METAL")
+    include("vendorspecific/benchmark_metal.jl")
+else
+    error("specify correct params")
+end
+elty=nothing
+
+if (ARGS[2]=="H")
+    const TILESIZE = 64
+    const QRSPLIT = 8
+    const BRDSPLIT = 8
+    elty=Float16
+    arty=typeof(KernelAbstractions.zeros(backend,elty,2,2))
+    @inline vendorsvd!(input::arty) = nothing
+elseif (ARGS[2]=="S")
+    const TILESIZE = 64
+    const QRSPLIT = 8
+    const BRDSPLIT = 8
+    elty=Float32
+elseif (ARGS[2]=="D")
+    const TILESIZE = 32
+    const QRSPLIT = 4
+    const BRDSPLIT = 4
+    elty=Float64
+else
+    error("specify correct params")
+end
+
 include("includesrc.jl")
 include("benchfuncs.jl")
 
 
-elty=Float16
+if (ARGS[3]=="SMALL")
+    #sizes=[64,128,256,512,1024,2048, 4096,8192]
+    sizes=[64,128,256]
+    include("benchmarkall.jl")
+    include("benchmarkmataddmul.jl")
+elseif (ARGS[3]=="LARGE")
+    sizes=8192 .*[2,4]
+    include("benchmarklarge.jl")
+    include("benchmarkmataddmul.jl")
+elseif (ARGS[3]=="SPECIFY")
+    sizes=[parse(Int,ARGS[4])]
+    include("benchmarklarge.jl")
+    include("benchmarkmataddmul.jl")
+else
+    error("specify correct params")
+end
 
 
-
-sizes=[64,128,256,512,1024,2048, 4096]#,8192,8192*2]
-include("benchmarkgeneral.jl")
-
-sizes=[64,128,256,512,1024,2048, 4096]#,8192,8192,8192*2,8192*4, 8192*8]
-include("benchmarkmataddmul.jl")
-
-sizes=8192 .*[1]#,2,4,8]
-include("benchmarkgenerallarge.jl")
-
-@inline vendorsvd!(input::CuArray) = svdvals!(input,  alg=CUDA.CUSOLVER.QRAlgorithm())
-
-elty=Float32
-
-sizes=[64,128,256]#,512,1024,2048, 4096,8192,8192*2]
-include("benchmarkgeneral.jl")
-
-sizes=[64,128,256]#,512,1024,2048, 4096,8192,8192,8192*2,8192*4, 8192*8]
-include("benchmarkmataddmul.jl")
-
-sizes=8192 .*[1]#,2,4,8]
-include("benchmarkgenerallarge.jl")

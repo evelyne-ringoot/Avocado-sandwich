@@ -1,8 +1,5 @@
-#using KernelAbstractions,GPUArrays, CUDA,Random, LinearAlgebra, Printf, BenchmarkTools
 
-#const backend=KernelAbstractions.get_backend(CUDA.zeros(2))
-#const TILESIZE = 9
-const BRDSPLIT = 8
+
 const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
 
 @kernel cpu=false inbounds=true unsafe_indices=false function brdkernel!(input, nbrows, secondsweep)
