@@ -39,8 +39,7 @@ include("benchfuncs.jl")
 
 
 if (ARGS[3]=="SMALL")
-    #sizes=[64,128,256,512,1024,2048, 4096,8192]
-    sizes=[64,128,256]
+    sizes=[64,128,256,512,1024,2048, 4096,8192]
     include("benchmarkall.jl")
     include("benchmarkmataddmul.jl")
 elseif (ARGS[3]=="LARGE")
