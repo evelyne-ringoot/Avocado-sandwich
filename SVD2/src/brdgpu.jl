@@ -71,6 +71,9 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
         
         newvalue = cache[1,1,idxiter] +  sign(cache[1,1,idxiter])*sqrt(tmpsumiter+ cache[1,1,idxiter]*cache[1,1,idxiter])
         factor = (tmp_sum+newvalue*cache[i,1,idxcurr]) *2/ (tmpsumiter+newvalue*newvalue)
+        if (isinf(factor))
+            factor = (tmp_sum/(newvalue*newvalue)+cache[i,1,idxcurr]/newvalue) *2/ (tmpsumiter/(newvalue*newvalue)+1)
+        end
         
         if (fullblock && (i>1||l==2))
             for j in 1:BRDSPLITFACTOR
