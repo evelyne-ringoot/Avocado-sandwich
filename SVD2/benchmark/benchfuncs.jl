@@ -1,5 +1,5 @@
 function benchmark_ms( size_i, myfunc)
-    a=rand!(KernelAbstractions.zeros(backend, elty,size_i, size_i))
+    a=randn!(KernelAbstractions.zeros(backend, elty,size_i, size_i))
     elapsed=0.0
     best=10000000000
     i=0
@@ -23,7 +23,7 @@ end
 
 
 function benchmark_ms_large( size_i, myfunc)
-    a=rand!(KernelAbstractions.zeros(backend, elty,size_i, size_i))
+    a=randn!(KernelAbstractions.zeros(backend, elty,size_i, size_i))
     elapsed=0.0
     best=1000000000
     i=0
