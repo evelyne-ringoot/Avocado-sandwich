@@ -1,6 +1,6 @@
 
 
-const TILESIZEMUL = 32
+
 const FACTORQR = Int(TILESIZE/QRSPLIT)
 const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
 
@@ -34,8 +34,15 @@ const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
                 end
             end
             newvalue = cache[iter] + sign(cache[iter]) * sqrt(sharedvalue[1] + cache[iter]*cache[iter])
-            taucurrent = 2 / (sharedvalue[1]/(newvalue*newvalue) + 1)
-            tmp_sum2 = (tmp_sum/newvalue + tilecol[iter])*taucurrent
+            tempval=sharedvalue[1] + (newvalue*newvalue)
+            taucurrent = 2(newvalue*newvalue) / (tempval)
+            tmp_sum2 = (tmp_sum + tilecol[iter]*newvalue)*2*(newvalue) / (tempval)
+            if (isinf(taucurrent) || isinf(tmp_sum2))
+                tempvalcorr = sharedvalue[1] / (newvalue*newvalue) + 1
+                taucurrent = 2 / (tempvalcorr)
+                tmp_sum2 = (tmp_sum/newvalue + tilecol[iter])*2 / (tempvalcorr)
+            end
+            
             
             if (i==iter)
                 tau_iter[1]=taucurrent
@@ -105,8 +112,12 @@ end
             end
             
             newvalue = sharedvalue[2] + sign(sharedvalue[2]) *sqrt(tmpsumiter+ sharedvalue[2]*sharedvalue[2])
-            taucurrent = 2 / (tmpsumiter / (newvalue*newvalue)+1)
-            tmp_sum2 = (tmp_sum/newvalue + tileiter)*taucurrent
+            taucurrent = 2(newvalue*newvalue) / (tmpsumiter +(newvalue*newvalue))
+            tmp_sum2 = (tmp_sum + tileiter*newvalue)*2(newvalue) / (tmpsumiter +(newvalue*newvalue))
+            if (isinf(taucurrent)|| isinf(tmp_sum2) )
+                taucurrent = 2 / (tmpsumiter/(newvalue*newvalue) +1)
+                tmp_sum2 = (tmp_sum/newvalue + tileiter)*2 / (tmpsumiter/(newvalue*newvalue) +1)
+            end
             tau_iter = i==iter ? taucurrent : tau_iter
 
             if (i>iter)
@@ -139,6 +150,7 @@ end
     
 
 end
+
 
 @kernel cpu=false  inbounds=true unsafe_indices=false  function applyQorQt_unsafe_kernel_2d!(A, @Const(Min), @Const(tau))
     g = @index(Group, Linear)
