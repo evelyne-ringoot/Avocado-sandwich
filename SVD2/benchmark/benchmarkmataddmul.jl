@@ -1,6 +1,6 @@
 timings=ones(2,length(sizes))*1000000000
 
-@inline function vendoradd!(a::CuArray,b::CuArray,c::CuArray)  
+@inline function vendoradd!(a::arty,b::arty,c::arty)  
     a .= b .+ c 
     return a
 end
