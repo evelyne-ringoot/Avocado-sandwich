@@ -9,8 +9,7 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
     colidx= rowidx + TILESIZE
     cache = @localmem eltype(input) (TILESIZE+1, TILESIZE,2)
     cache2 = @localmem eltype(input) (BRDSPLIT+1,TILESIZE,2)
-    
-    #TODO: end cases
+
 
     fullblock= (g>1 || l==2 || secondsweep)
     
@@ -51,22 +50,22 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
                             input[rowidx+(k-1)*BRDSPLITFACTOR+j+TILESIZE*(1+idx),colidx+i+idx*TILESIZE] : zero(eltype(input))
             end
         end
-
-        @synchronize
         
+
+       @synchronize
         tmp_sum = zero(eltype(input))
-        for j in 1:BRDSPLIT
+        for j in 1:BRDSPLITFACTOR
             tmp_sum+= ((k+j==2) ? zero(eltype(input)) : cache[1,(k-1)*BRDSPLITFACTOR+j,idxiter]*cache[i,(k-1)*BRDSPLITFACTOR+j,idxcurr])
         end
-        cache2[k,i,3-l]=tmp_sum
+        cache2[k,i,idxcurr]=tmp_sum
 
         @synchronize
         
         tmpsumiter = zero(eltype(input))
         tmp_sum = zero(eltype(input))
         for j = 1:BRDSPLIT
-            tmpsumiter+= cache2[j,1,2]
-            tmp_sum += cache2[j,i,3-l]
+            tmpsumiter+= cache2[j,1,idxiter]
+            tmp_sum += cache2[j,i,idxcurr]
         end
         
         newvalue = cache[1,1,idxiter] +  sign(cache[1,1,idxiter])*sqrt(tmpsumiter+ cache[1,1,idxiter]*cache[1,1,idxiter])
@@ -85,7 +84,8 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
 
         if (k==1 && i>1 &&l==1)
             cache[1,i,idxiter]= zero(eltype(input))
-        elseif (k==2)
+        end
+        if (k==1)
             cache[i,1,idxcurr]-=factor*newvalue
         end
 
@@ -120,12 +120,12 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
                         input[rowidx+(k-1)*BRDSPLITFACTOR+j+TILESIZE*(1+idx),colidx+TILESIZE*(1+idx)+i] : zero(eltype(input))
             end
         end
-
+        @synchronize
         tmp_sum = zero(eltype(input))
         for j in 1:BRDSPLITFACTOR
             tmp_sum+= ((k+j==2) ? zero(eltype(input)) : cache[(k-1)*BRDSPLITFACTOR+j,1,idxiter]*cache[(k-1)*BRDSPLITFACTOR+j,i,idxcurr])
         end
-        cache2[k,i,l]=tmp_sum
+        cache2[k,i,idxcurr]=tmp_sum
 
         @synchronize
   
@@ -133,12 +133,18 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
         tmpsumiter = zero(eltype(input))
         tmp_sum = zero(eltype(input))
         for j = 1:BRDSPLIT
-            tmpsumiter+= cache2[j,1,1]
-            tmp_sum += cache2[j,i,l]
+            tmpsumiter+= cache2[j,1,idxiter]
+            tmp_sum += cache2[j,i,idxcurr]
         end
         
         newvalue = cache[1,1,idxiter] +  sign(cache[1,1,idxiter])*sqrt(tmpsumiter+ cache[1,1,idxiter]*cache[1,1,idxiter])
+
         factor = (tmp_sum+cache[1,i,idxcurr]*newvalue) *2/ (tmpsumiter+newvalue*newvalue)
+        if(isinf(factor))
+            factor = (tmp_sum/(newvalue*newvalue)+cache[i,1,idxcurr]/newvalue) *2/ (tmpsumiter/(newvalue*newvalue)+1)
+        end
+
+        @synchronize
         
         if ((i>1 || l==2))
             for j in 1:BRDSPLITFACTOR
@@ -146,13 +152,15 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
             end
         end
 
+
         @synchronize
+        
         if (k==1 && i>1 &&l==1)
             cache[i,1,idxiter]= zero(eltype(input))
-        elseif (k==2)
+        end
+        if (k==1)
             cache[1,i,idxcurr]-=factor*newvalue
         end
-
         @synchronize
 
         if (l==1)
