@@ -1,5 +1,4 @@
-const MINTIME = 200.0
-const NUMRUMS= 12
+
 
 function benchmark_ms( size_i, myfunc)
     a=randn!(KernelAbstractions.zeros(backend, elty,size_i, size_i))

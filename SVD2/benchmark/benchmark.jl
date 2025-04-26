@@ -24,10 +24,12 @@ end
 
 arty=typeof(KernelAbstractions.zeros(backend,elty,2,2))
 
-const TILESIZE = length(ARGS>=5) ? parse(Int,ARGS[5]) : 64
-const TILESIZEMUL =  length(ARGS>=6) ? parse(Int,ARGS[6]) : 32
-const QRSPLIT = length(ARGS>=7) ? parse(Int,ARGS[7]) :  8
-const BRDSPLIT = length(ARGS>=7) ? parse(Int,ARGS[7]) : 8
+const TILESIZE = length(ARGS)>=5 ? parse(Int,ARGS[5]) : 64
+const TILESIZEMUL =  length(ARGS)>=6 ? parse(Int,ARGS[6]) : 32
+const QRSPLIT = length(ARGS)>=7 ? parse(Int,ARGS[7]) :  8
+const BRDSPLIT = length(ARGS)>=7 ? parse(Int,ARGS[7]) : 8
+const MINTIME = length(ARGS)>=8 ? parse(Int,ARGS[8]) : 200.0
+const NUMRUMS= length(ARGS)>=9 ? parse(Int,ARGS[9]) : 12
 
 include("includesrc.jl")
 include("benchfuncs.jl")
