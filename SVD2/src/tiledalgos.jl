@@ -39,12 +39,16 @@ Qtapply2_parfused!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; koffse
                                     applyQorQt_unsafe_kernel2_fused!(backend, (TILESIZEMUL))(get_rowview(A, k+koffset, k+1), 
                                     get_blockview(A,  k+1+koffset, k+1), get_rowview(A', k,k+1+koffset)', 
                                     get_rowview(Tau, 1,k+1+koffset, TILESIZE,1), Int((size(A,2)-(k+koffset)*TILESIZE)/TILESIZE), ndrange=( size(A,2)-k*TILESIZE))
+QR2_fused!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; koffset::Int=0) where T =
+                                    QR_unsafe_kernel2_fused!(backend, (QRSPLIT, TILESIZE))(get_tileview(A, k+koffset,k),
+                                     get_rowview(A', k, k+koffset+1)', get_rowview(Tau, 1,k+koffset+1,  TILESIZE,1),
+                                     Int((size(A,2)-(k+koffset)*TILESIZE)/TILESIZE),  ndrange=(QRSPLIT,TILESIZE))
 
 function brd!(A::AnyGPUMatrix{T}, noblocks) where T 
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
 end
-function gbbrd!(A::AnyGPUMatrix{T}) where T 
+function mygbbrd!(A::AnyGPUMatrix{T}) where T 
     n=size(A,1)
     for k in 1:(n-1)
         brd!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
@@ -101,13 +105,13 @@ function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T},
     return A
 end
 
-function banddiagsvd(A::AbstractMatrix)
+#=function banddiagsvd(A::AbstractMatrix)
     d,e = gbbrd!(gbbrd_copy(A,TILESIZE), TILESIZE)
     return LAPACK.bdsdc!('U', 'N', d, e)[1]
-end
+end=#
 
 function banddiagsvd(A::AbstractGPUMatrix)
-    gbbrd!(A)
+    mygbbrd!(A)
     KernelAbstractions.synchronize(get_backend(A))
     n=size(A,1)
     d=(Array(A[1:n+1:end]))
@@ -134,12 +138,14 @@ function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtil
     triu!(get_tileview(A, k+Int(LQ),k))
 
         for row in k+1+Int(LQ):(nbtiles)
-            QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
+            #QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
             #Qtapply2_par!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
         end
-
-    Qtapply2_parfused!(A, Tau, k; koffset=Int(LQ))
-    fill!(get_rowview(A',k, k+1+Int(LQ)),0)
+    if ( k+1+Int(LQ)<=(nbtiles))
+        QR2_fused!(A, Tau, k; koffset=Int(LQ)) 
+        Qtapply2_parfused!(A, Tau, k; koffset=Int(LQ))
+        fill!(get_rowview(A',k, k+1+Int(LQ)),0)
+    end
 end
 
 #=
