@@ -5,26 +5,42 @@ timings=ones(2,length(sizes))*1000000000
     return a
 end
 
-
-
 println( "warmup add");
-for (i,size_i) in enumerate(sizes)
-    timings[1,i] = min( benchmark_ms_muladd(size_i,vendoradd!), timings[1,i])
+
+try
+    for (i,size_i) in enumerate(sizes)
+        timings[1,i] = min( benchmark_ms_muladd(size_i,vendoradd!), timings[1,i])
+    end
+catch e
+    println("did not run all sizes")
 end
 
 println( "warump mul");
-for (i,size_i) in enumerate(sizes)
-    timings[2,i] = min( benchmark_ms_muladd(size_i,mul!), timings[2,i])
+try 
+    for (i,size_i) in enumerate(sizes)
+        timings[2,i] = min( benchmark_ms_muladd(size_i,mul!), timings[2,i])
+    end
+catch e
+    println("did not run all sizes")
 end
 
 println( "benchmark add");
-for (i,size_i) in enumerate(sizes)
-    timings[1,i] = min( benchmark_ms_muladd(size_i,vendoradd!), timings[1,i])
+try 
+    for (i,size_i) in enumerate(sizes)
+        timings[1,i] = min( benchmark_ms_muladd(size_i,vendoradd!), timings[1,i])
+    end
+catch e
+    println("did not run all sizes")
 end
 
+
 println( "benchmark mul");
-for (i,size_i) in enumerate(sizes)
-    timings[2,i] = min( benchmark_ms_muladd(size_i,mul!), timings[2,i])
+try
+    for (i,size_i) in enumerate(sizes)
+        timings[2,i] = min( benchmark_ms_muladd(size_i,mul!), timings[2,i])
+    end
+catch e
+    println("did not run all sizes")
 end
 
 
