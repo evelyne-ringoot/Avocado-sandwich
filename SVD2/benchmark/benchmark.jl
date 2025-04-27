@@ -28,18 +28,18 @@ const TILESIZE = length(ARGS)>=5 ? parse(Int,ARGS[5]) : 64
 const TILESIZEMUL =  length(ARGS)>=6 ? parse(Int,ARGS[6]) : 32
 const QRSPLIT = length(ARGS)>=7 ? parse(Int,ARGS[7]) :  8
 const BRDSPLIT = length(ARGS)>=7 ? parse(Int,ARGS[7]) : 8
-const MINTIME = length(ARGS)>=9 ? parse(Int,ARGS[9]) : 200
-const NUMRUMS= length(ARGS)>=10 ? parse(Int,ARGS[10]) : 12
+const MINTIME = length(ARGS)>=9 ? parse(Int,ARGS[9]) : 2000
+const NUMRUMS= length(ARGS)>=10 ? parse(Int,ARGS[10]) : 20
 
 include("includesrc.jl")
 include("benchfuncs.jl")
 brd! = (length(ARGS)>=8 && ARGS[8]=="Y") ? brd2! : brd1!
 
 if (ARGS[3]=="SMALL")
-    sizes=[64,128,256,512,1024,2048, 4096,8192]
+    sizes=[64,128,256,512,1024,2048, 4096]
     include("benchmarkall.jl")
 elseif (ARGS[3]=="LARGE")
-    sizes=8192 .*[2,4,8]
+    sizes=8192 .*[1,2,4,8]
     include("benchmarklarge.jl")
 elseif (ARGS[3]=="SPECIFY")
     sizes=[parse(Int,ARGS[4])]
