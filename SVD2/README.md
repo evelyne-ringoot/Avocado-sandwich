@@ -8,7 +8,7 @@ cd Avocado-sandwich/SVD2/
 ../../-1.11.5/bin/julia --project=. 
 julia> Pkg.instantiate()
 julia> exit()
-../../-1.11.5/bin/julia --project=. -t auto benchmark/benchmark.jl CUDA S SMALL 0 64 32 8 200 20
+../../-1.11.5/bin/julia --project=. -t auto benchmark/benchmark.jl CUDA S SMALL 0 64 32 8 N
 ```
 
 Options
