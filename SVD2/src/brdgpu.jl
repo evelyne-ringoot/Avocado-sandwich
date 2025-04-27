@@ -18,7 +18,7 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
         if (fullblock)
             loadblockintocache(view(cache,:,:,1),input, k,i,rowidx,colidx, nbrows)
         else
-            for j in 1:BRDSPLITFACTOR
+            @unroll for j in 1:BRDSPLITFACTOR
                 cache[(k-1)*BRDSPLITFACTOR+j,i,1] = zero(eltype(input))
             end
             if (k==1 && colidx+i <=nbrows)
@@ -45,7 +45,7 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
         
         tmpsumiter = zero(eltype(input))
         tmp_sum = zero(eltype(input))
-        for j = 1:BRDSPLIT
+        @unroll for j = 1:BRDSPLIT
             tmpsumiter+= cache2[j,1,idxiter]
             tmp_sum += cache2[j,i,idxcurr]
         end
@@ -99,7 +99,7 @@ end
         if (fullblock)
             loadblockintocache(cache,input, k,i,rowidx,colidx, nbrows)
         else
-            for j in 1:BRDSPLITFACTOR
+            @unroll for j in 1:BRDSPLITFACTOR
                 cache[(k-1)*BRDSPLITFACTOR+j,i] = zero(eltype(input))
             end
             if (k==1 && colidx+i <=nbrows)
@@ -119,7 +119,7 @@ end
         
         tmpsumiter = zero(eltype(input))
         tmp_sum = zero(eltype(input))
-        for j = 1:BRDSPLIT
+        @unroll for j = 1:BRDSPLIT
             tmpsumiter+= cache2[j,1]
             tmp_sum += cache2[j,i]
         end
@@ -162,7 +162,7 @@ end
         @synchronize
 
         tmp_sum = zero(eltype(input))
-        for j = 1:BRDSPLIT
+        @unroll for j = 1:BRDSPLIT
             tmp_sum += cache2[j,i]
         end
         factor = calc_factor2(newvalue, tmpsumiter, tmp_sum)
@@ -182,7 +182,7 @@ end
 end
 
 @inline function loadblockintocache(cache, input, k::Int, i::Int, rowidx::Int, colidx::Int, nbrows::Int)
-        for j in 1:BRDSPLITFACTOR
+        @unroll for j in 1:BRDSPLITFACTOR
             cache[(k-1)*BRDSPLITFACTOR+j,i] = 
                     (rowidx+(k-1)*BRDSPLITFACTOR+j<=nbrows && colidx+i<=nbrows) ? 
                     input[rowidx+(k-1)*BRDSPLITFACTOR+j,colidx+i] : zero(eltype(input))
@@ -191,7 +191,7 @@ end
 
 @inline function mulvecvec_split_exclfirst(vec1, vec2,cache2, k::Int, nonfirst::Int )
     tmp_sum = zero(eltype(vec1))
-    for j in 1:BRDSPLITFACTOR
+    @unroll for j in 1:BRDSPLITFACTOR
         tmp_sum+= ((k+j+nonfirst==2) ? zero(eltype(vec1)) : vec1[(k-1)*BRDSPLITFACTOR+j]*vec2[(k-1)*BRDSPLITFACTOR+j])
     end
     cache2[k]=tmp_sum
@@ -199,7 +199,7 @@ end
 
 
 @inline function sendblockbacktomem(input, cache, k::Int, i::Int, rowidx::Int, colidx::Int, nbrows::Int)
-        for j in 1:BRDSPLITFACTOR
+        @unroll for j in 1:BRDSPLITFACTOR
             if (rowidx+(k-1)*BRDSPLITFACTOR+j<=nbrows && colidx+i<=nbrows)
                 input[rowidx+(k-1)*BRDSPLITFACTOR+j,colidx+i] = cache[(k-1)*BRDSPLITFACTOR+j,i]
             end
@@ -225,7 +225,7 @@ end
 end
 
 @inline function updatevector(vec1, vec2, factor::Number,k::Int)
-    for j in 1:BRDSPLITFACTOR
+    @unroll for j in 1:BRDSPLITFACTOR
         vec1[(k-1)*BRDSPLITFACTOR+j]-=((k+j==2) ?  zero(eltype(vec1)) : factor* vec2[(k-1)*BRDSPLITFACTOR+j])
     end
 end
