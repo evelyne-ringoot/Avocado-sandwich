@@ -1,8 +1,18 @@
 
 
-
 const FACTORQR = Int(TILESIZE/QRSPLIT)
 const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
+
+@inline function calc_tau_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
+    newvalue = u1 + sign(u1) *sqrt(u1*u1+unorm)
+    taucurrent = 2(newvalue*newvalue) / (unorm + newvalue*newvalue)
+    tmp_sum2 = (uv +newvalue*v1)*2*newvalue/ (unorm + newvalue*newvalue)
+    if (isinf(taucurrent) || isinf(tmp_sum2))
+        taucurrent = 2 / (unorm/(newvalue*newvalue) + 1)
+        tmp_sum2 = (uv/newvalue +v1)*2/ (unorm/(newvalue*newvalue) + 1)
+    end
+    return newvalue, taucurrent, tmp_sum2
+end
 
 @kernel cpu=false  inbounds=true unsafe_indices=false function QR_unsafe_kernel_2d!(input, tau) 
     i = @index(Local,Linear)
@@ -33,15 +43,7 @@ const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
                     tmp_sum+=cache[j]*tilecol[j]
                 end
             end
-            newvalue = cache[iter] + sign(cache[iter]) * sqrt(sharedvalue[1] + cache[iter]*cache[iter])
-            tempval=sharedvalue[1] + (newvalue*newvalue)
-            taucurrent = 2(newvalue*newvalue) / (tempval)
-            tmp_sum2 = (tmp_sum + tilecol[iter]*newvalue)*2*(newvalue) / (tempval)
-            if (isinf(taucurrent) || isinf(tmp_sum2))
-                tempvalcorr = sharedvalue[1] / (newvalue*newvalue) + 1
-                taucurrent = 2 / (tempvalcorr)
-                tmp_sum2 = (tmp_sum/newvalue + tilecol[iter])*2 / (tempvalcorr)
-            end
+            newvalue, taucurrent, tmp_sum2 = calc_tau_factor(cache[iter], sharedvalue[1], tmp_sum , tilecol[iter])
             
             
             if (i==iter)
@@ -110,14 +112,7 @@ end
                 tmpsumiter+= cache2[j,iter]
                 tmp_sum += cache2[j,i]
             end
-            
-            newvalue = sharedvalue[2] + sign(sharedvalue[2]) *sqrt(tmpsumiter+ sharedvalue[2]*sharedvalue[2])
-            taucurrent = 2(newvalue*newvalue) / (tmpsumiter +(newvalue*newvalue))
-            tmp_sum2 = (tmp_sum + tileiter*newvalue)*2(newvalue) / (tmpsumiter +(newvalue*newvalue))
-            if (isinf(taucurrent)|| isinf(tmp_sum2) )
-                taucurrent = 2 / (tmpsumiter/(newvalue*newvalue) +1)
-                tmp_sum2 = (tmp_sum/newvalue + tileiter)*2 / (tmpsumiter/(newvalue*newvalue) +1)
-            end
+            newvalue, taucurrent, tmp_sum2 = calc_tau_factor(sharedvalue[2], tmpsumiter, tmp_sum , tileiter)
             tau_iter = i==iter ? taucurrent : tau_iter
 
             if (i>iter)
@@ -196,14 +191,8 @@ end
                     tmpsumiter+= cache2[j,iter]
                     tmp_sum += cache2[j,i]
                 end
-                
-                newvalue = tilecol_first[iter,iter] + sign(tilecol_first[iter,iter]) *sqrt(tmpsumiter+ tilecol_first[iter,iter]*tilecol_first[iter,iter])
-                taucurrent = 2(newvalue*newvalue) / (tmpsumiter +(newvalue*newvalue))
-                tmp_sum2 = (tmp_sum + tilecol_first[i,iter]*newvalue)*2(newvalue) / (tmpsumiter +(newvalue*newvalue))
-                if (isinf(taucurrent)|| isinf(tmp_sum2) )
-                    taucurrent = 2 / (tmpsumiter/(newvalue*newvalue) +1)
-                    tmp_sum2 = (tmp_sum/newvalue + tilecol_first[i,iter])*2 / (tmpsumiter/(newvalue*newvalue) +1)
-                end
+
+                newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first[iter,iter], tmpsumiter, tmp_sum , tilecol_first[i,iter])
                 if (k==1)
                     tau_iter[iter]=taucurrent
                 end
