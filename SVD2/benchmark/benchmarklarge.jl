@@ -1,7 +1,7 @@
 timings=ones(3,length(sizes))
 
 println( "benchmark large sizes vendor");
-for (i,size_i) in enumerate(sizes)
+for (i,size_i) in enumerate(sizes[1,2])
     timings[1,i] = benchmark_ms(size_i,vendorsvd!)
 end
 
