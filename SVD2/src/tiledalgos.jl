@@ -44,9 +44,13 @@ QR2_fused!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; koffset::Int=0
                                      get_rowview(A', k, k+koffset+1)', get_rowview(Tau, 1,k+koffset+1,  TILESIZE,1),
                                      Int((size(A,2)-(k+koffset)*TILESIZE)/TILESIZE),  ndrange=(QRSPLIT,TILESIZE))
 
-function brd!(A::AnyGPUMatrix{T}, noblocks) where T 
+function brd1!(A::AnyGPUMatrix{T}, noblocks) where T 
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
+end
+function brd2!(A::AnyGPUMatrix{T}, noblocks) where T 
+    brdkernel_lowmem!(backend, (BRDSPLIT, TILESIZE))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE))
+    brdkernel_lowmem!(backend, (BRDSPLIT, TILESIZE))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE))
 end
 function mygbbrd!(A::AnyGPUMatrix{T}) where T 
     n=size(A,1)
