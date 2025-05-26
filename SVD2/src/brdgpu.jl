@@ -1,6 +1,73 @@
 
 using KernelAbstractions.Extras: @unroll
 const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
+const BRDSUBTILE = Int(TILESIZE/BRDTILESPERTILE)
+
+struct PackedBandGPUMatrix{T} 
+    data::AbstractGPUMatrix{T}     # diagonals plus bufferspace above and below
+    bw::Int
+    function PackedBandGPUMatrix{T}(d::AbstractGPUMatrix{T},bw::Int) where {T}
+        new{T}(d,bw)
+    end
+end
+function PackedBandGPUMatrix(input::Matrix{T},bw::Int) where {T}
+    n=size(input,1)
+    d=KernelAbstractions.zeros(backend,T,bw*3+1,size(input,2))
+    for i in 0:bw
+        d[2bw+1-i,1:(end-i)].=input[in+1:n+1:end]
+    end
+    return PackedBandGPUMatrix{T}(d,bw)
+end
+
+function brd1!(A::AnyGPUMatrix{T}, noblocks) where T 
+    brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
+    brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
+end
+function brd2!(A::AnyGPUMatrix{T}, noblocks) where T 
+    brdkernel_lowmem!(backend, (BRDSPLIT, TILESIZE))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE))
+    brdkernel_lowmem!(backend, (BRDSPLIT, TILESIZE))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE))
+end
+function brd3!(A::AnyGPUMatrix{T}, noblocks) where T 
+    brdkernel_large!(backend, (BRDSPLIT, BRDSUBTILE))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,BRDSUBTILE))
+    brdkernel_large!(backend, (BRDSPLIT, BRDSUBTILE))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,BRDSUBTILE))
+end
+function brd3!(A::PackedBandGPUMatrix{T}, noblocks) where T 
+    brdkernel_large!(backend, (BRDSPLIT, BRDSUBTILE))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,BRDSUBTILE))
+    brdkernel_large!(backend, (BRDSPLIT, BRDSUBTILE))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,BRDSUBTILE))
+end
+
+function mygbbrd!(A::AnyGPUMatrix{T}) where T 
+    n=size(A,1)
+    for k in 1:(n-1)
+        brd!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
+    end
+end
+function mygbbrd1!(A::AnyGPUMatrix{T}) where T 
+    n=size(A,1)
+    for k in 1:(n-1)
+        brd1!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
+    end
+end
+function mygbbrd2!(A::AnyGPUMatrix{T}) where T 
+    n=size(A,1)
+    for k in 1:(n-1)
+        brd2!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
+    end
+end
+function mygbbrd3!(A::AnyGPUMatrix{T}) where T 
+    n=size(A,1)
+    for k in 1:(n-1)
+        brd3!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
+    end
+end 
+
+function mygbbrd_packed!(A::AnyGPUMatrix{T} ) where {T}
+    packed=PackedBandGPUMatrix(A,TILESIZE) 
+    n=size(A,1)
+    for k in 1:(n-1)
+        brd3!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
+    end
+end
 
 @kernel cpu=false inbounds=true unsafe_indices=false function brdkernel!(input, nbrows, secondsweep)
     k,i,l = @index(Local, NTuple)
@@ -10,20 +77,16 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
     cache = @localmem eltype(input) (TILESIZE+1, TILESIZE,2)
     cache2 = @localmem eltype(input) (BRDSPLIT+1,TILESIZE,2)
 
+    krange = (k-1)*BRDSPLITFACTOR.+(1:BRDSPLITFACTOR)
     idxcurr = l-1 
     idxiter=0
     fullblock= (g>1 || l==2 || secondsweep)
     
     if (l==1)
-        if (fullblock)
-            loadblockintocache(view(cache,:,:,1),input, k,i,rowidx,colidx, nbrows)
+        if (fullblock) 
+            loadblockintocache(view(cache,krange,i,1),input, k,i,rowidx,colidx, nbrows)
         else
-            @unroll for j in 1:BRDSPLITFACTOR
-                cache[(k-1)*BRDSPLITFACTOR+j,i,1] = zero(eltype(input))
-            end
-            if (k==1 && colidx+i <=nbrows)
-                cache[1,i,1] =  input[1,colidx+i] 
-            end
+            loadonlyfirstrow(view(cache,i,krange,1), input, k,i,colidx,nbrows)
         end
     end
     @synchronize
@@ -32,43 +95,39 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
         @unroll for dolq in 0:1
         idxiter= idxiter % 2 +1
         idxcurr = idxcurr % 2 +1
+        idx_x = dolq==0 ? 1 : i
+        idx_y = dolq==0 ? i : 1
         
         if (l==2)
-            loadblockintocache(view(cache,:,:,idxcurr),input, k,i,rowidx+TILESIZE*(1+idx),colidx+(idx+dolq)*TILESIZE, nbrows)
+            loadblockintocache(view(cache,krange,i,idxcurr),input, k,i,rowidx+TILESIZE*(1+idx),colidx+(idx+dolq)*TILESIZE, nbrows)
         end
 
         @synchronize
-        mulvecvec_split_exclfirst((dolq==0) ? view(cache,1,:,idxiter) : view(cache,:,1,idxiter),
-                                (dolq==0) ? view(cache,i,:,idxcurr) : view(cache,:,i,idxcurr),view(cache2,:,i,idxcurr), k,0)
+        mulvecvec_split_exclfirst((dolq==0) ? view(cache,1,krange,idxiter) : view(cache,krange,1,idxiter),
+                                (dolq==0) ? view(cache,i,krange,idxcurr) : view(cache,krange,i,idxcurr),view(cache2,:,i,idxcurr), k,0)
  
         @synchronize
         
-        tmpsumiter = zero(eltype(input))
-        tmp_sum = zero(eltype(input))
-        @unroll for j = 1:BRDSPLIT
-            tmpsumiter+= cache2[j,1,idxiter]
-            tmp_sum += cache2[j,i,idxcurr]
-        end
+        tmpsumiter = accumulatevals(view(cache2,:,1,idxiter))
+        tmp_sum = accumulatevals(view(cache2,:,i,idxcurr))
         
-        newvalue, factor = calc_factor(cache[1,1,idxiter], tmpsumiter, tmp_sum, dolq==0 ? cache[i,1,idxcurr] : cache[1,i,idxcurr] )
-        if (fullblock && (i>1||l==2))
-                updatevector((dolq==0) ? view(cache, i,:,idxcurr) : view(cache, :,i,idxcurr) , 
-                            (dolq==0) ? view(cache,1,:,idxiter) : view(cache,:,1,idxiter) , factor,k)
-        end
+        newvalue, factor, execiter = calc_factor(cache[1,1,idxiter], tmpsumiter, tmp_sum,  cache[idx_y,idx_x,idxcurr] )
+        
+        updatevector((dolq==0) ? view(cache, i,krange,idxcurr) : view(cache, krange,i,idxcurr) , 
+                            (dolq==0) ? view(cache,1,krange,idxiter) : view(cache,krange,1,idxiter) , factor,k,execiter && fullblock && (i>1 || l==2))
         
         @synchronize
-        idx_x = dolq==0 ? 1 : i
-        idx_y = dolq==0 ? i : 1
+        
         (k==1 && i>1 &&l==1) && (cache[idx_x,idx_y,idxiter]= zero(eltype(input)))
-        (k==1) &&  (cache[idx_y,idx_x,idxcurr]-=factor*newvalue)
+        (k==1 && execiter ) &&  (cache[idx_y,idx_x,idxcurr]-=factor*newvalue)
 
         @synchronize
 
         if (l==1) 
             if (fullblock)
-                sendblockbacktomem(input, view(cache,:,:,idxiter), k, i, rowidx+TILESIZE*(idx+dolq), colidx+idx*TILESIZE, nbrows)
-            elseif (k==1 && colidx+i<=nbrows)
-                input[1,colidx+i] = cache[1,i,1] 
+                sendblockbacktomem(input, view(cache,krange,i,idxiter), k, i, rowidx+TILESIZE*(idx+dolq), colidx+idx*TILESIZE, nbrows)
+            else
+                sendbackonlyfirstrow(view(cache,i,krange,1), input, k,i,colidx,nbrows)
             end
         end
         fullblock=true
@@ -78,7 +137,7 @@ const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
     end
 
     if (l==2)
-        sendblockbacktomem(input, view(cache,:,:,idxcurr), k, i, rowidx+TILESIZE*2, colidx+2*TILESIZE, nbrows)
+        sendblockbacktomem(input, view(cache,krange,i,idxcurr), k, i, rowidx+TILESIZE*2, colidx+2*TILESIZE, nbrows)
     end
 
 end
@@ -93,83 +152,70 @@ end
     cache2 = @localmem eltype(input) (BRDSPLIT+1,TILESIZE)
     tilecol_cache = @localmem eltype(input) (TILESIZE)
 
-
+    krange = (k-1)*BRDSPLITFACTOR.+(1:BRDSPLITFACTOR)
     fullblock= (g>1|| secondsweep)
     
         if (fullblock)
-            loadblockintocache(cache,input, k,i,rowidx,colidx, nbrows)
+            loadblockintocache(view(cache, krange,i),input, k,i,rowidx,colidx, nbrows)
         else
-            @unroll for j in 1:BRDSPLITFACTOR
-                cache[(k-1)*BRDSPLITFACTOR+j,i] = zero(eltype(input))
-            end
-            if (k==1 && colidx+i <=nbrows)
-                cache[1,i] =  input[1,colidx+i] 
-            end
+            loadonlyfirstrow(view(cache,i,krange), input, k,i,colidx,nbrows)
         end
 
     @synchronize
 
     @unroll for idx in 0:1
         @unroll for dolq in 0:1
-        
-        mulvecvec_split_exclfirst((dolq==0) ? view(cache,1,:) : view(cache,:,1),
-                                (dolq==0) ? view(cache,i,:) : view(cache,:,i),view(cache2,:,i), k,0)
+        idx_x = dolq==0 ? 1 : i
+        idx_y = dolq==0 ? i : 1
+            
+        pivotel=cache[1,1]
+        mulvecvec_split_exclfirst((dolq==0) ? view(cache,1,krange) : view(cache,krange,1),
+                                (dolq==0) ? view(cache,i,krange) : view(cache,krange,i),view(cache2,:,i), k,0)
  
         @synchronize
         
-        tmpsumiter = zero(eltype(input))
-        tmp_sum = zero(eltype(input))
-        @unroll for j = 1:BRDSPLIT
-            tmpsumiter+= cache2[j,1]
-            tmp_sum += cache2[j,i]
-        end
-        
-        newvalue, factor = calc_factor(cache[1,1], tmpsumiter, tmp_sum, dolq==0 ? cache[i,1] : cache[1,i] )
-        if (fullblock && (i>1))
-                updatevector((dolq==0) ? view(cache, i,:) : view(cache, :,i) , 
-                            (dolq==0) ? view(cache,1,:) : view(cache,:,1) , factor,k)
-        end
+        tmpsumiter = accumulatevals(view(cache2,:,1))
+        tmp_sum = accumulatevals(view(cache2,:,i))
+
+        newvalue, factor,execiter = calc_factor(cache[1,1], tmpsumiter, tmp_sum,cache[idx_y,idx_x] )
+
+        updatevector((dolq==0) ? view(cache, i,krange) : view(cache, krange,i) , 
+                            (dolq==0) ? view(cache,1,krange) : view(cache,krange,1) , factor,k,execiter && fullblock && (i>1))
         if (k+BRDSPLIT*(i-1) <= TILESIZE) 
             tilecol_cache[k+BRDSPLIT*(i-1)]= (dolq == 0) ?  cache[1,k+BRDSPLIT*(i-1)] : cache[k+BRDSPLIT*(i-1),1]
         end
-        @synchronize
-        idx_x = dolq==0 ? 1 : i
-        idx_y = dolq==0 ? i : 1
-        (k==1 && i>1) && (cache[idx_x,idx_y]= zero(eltype(input)))
-        (k==1) &&  (cache[idx_y,idx_x]-=factor*newvalue)
 
+        @synchronize
+
+        (k==1 && i>1) && (cache[idx_x,idx_y]= zero(eltype(input)))
+        (k==1 && execiter) &&  (cache[idx_y,idx_x]-=factor*newvalue)
+        
         @synchronize
 
 
         if (fullblock)
-            sendblockbacktomem(input, view(cache,:,:), k, i, rowidx+TILESIZE*(idx+dolq), colidx+idx*TILESIZE, nbrows)
-        elseif (k==1 && colidx+i<=nbrows)
-            input[1,colidx+i] = cache[1,i,1] 
-        end
-
-        
-        if (i==1 && k==1)
-            tilecol_cache[1]=newvalue
-        end
-        @synchronize
-
-        loadblockintocache(view(cache,:,:),input, k,i,rowidx+TILESIZE*(1+idx),colidx+(idx+dolq)*TILESIZE, nbrows)
+            sendblockbacktomem(input, view(cache,krange,i), k, i, rowidx+TILESIZE*(idx+dolq), colidx+idx*TILESIZE, nbrows)
+        else
+            sendbackonlyfirstrow(view(cache,i,krange), input, k,i,colidx,nbrows)
+        end        
+        (i==1 && k==1) &&  (tilecol_cache[1]=newvalue)
 
         @synchronize
 
-        mulvecvec_split_exclfirst(tilecol_cache,  (dolq==0) ? view(cache,i,:) : view(cache,:,i),view(cache2,:,i), k,1)
+        loadblockintocache(view(cache,krange,i),input, k,i,rowidx+TILESIZE*(1+idx),colidx+(idx+dolq)*TILESIZE, nbrows)
 
         @synchronize
 
-        tmp_sum = zero(eltype(input))
-        @unroll for j = 1:BRDSPLIT
-            tmp_sum += cache2[j,i]
-        end
-        factor = calc_factor2(newvalue, tmpsumiter, tmp_sum)
+        mulvecvec_split_exclfirst(view(tilecol_cache,krange),  (dolq==0) ? view(cache,i,krange) : view(cache,krange,i),view(cache2,:,i), k,1)
 
-        updatevector((dolq==0) ? view(cache, i,:) : view(cache, :,i) , tilecol_cache, factor,k)
         @synchronize
-        (k==1) &&  (cache[idx_y,idx_x]-=factor*newvalue)
+
+        tmp_sum = accumulatevals(view(cache2,:,i))
+        factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,dolq==0 ? cache[i,1] : cache[1,i] ,newvalue)
+
+        updatevector((dolq==0) ? view(cache, i,krange) : view(cache, krange,i) , view(tilecol_cache,krange), factor,k, execiter)
+        @synchronize
+        (k==1 && execiter) &&  (cache[idx_y,idx_x]-=factor*newvalue)
         @synchronize
 
         fullblock=true
@@ -178,45 +224,163 @@ end
     end
     end
 
-    sendblockbacktomem(input, view(cache,:,:), k, i, rowidx+TILESIZE*2, colidx+2*TILESIZE, nbrows)
+    sendblockbacktomem(input, view(cache,krange,i), k, i, rowidx+TILESIZE*2, colidx+2*TILESIZE, nbrows)
 end
 
-@inline function loadblockintocache(cache, input, k::Int, i::Int, rowidx::Int, colidx::Int, nbrows::Int)
+@kernel cpu=false inbounds=true unsafe_indices=false function brdkernel_large!(input, nbrows, secondsweep; packed::Bool=false)
+    k,i = @index(Local, NTuple)
+    g = @index(Group, Linear)
+    rowidx= -TILESIZE+1+Int(secondsweep)*2TILESIZE +(g-1)*(4TILESIZE-1)
+    colidx= rowidx + TILESIZE
+    tilecol = @private eltype(input) (BRDSPLITFACTOR)
+    cache2 = @localmem eltype(input) (BRDSPLIT+1,BRDSUBTILE)
+    tilecol_cache = @localmem eltype(input) (TILESIZE)
+    tilecol_first = @localmem eltype(input) (BRDSUBTILE)
+
+    krange = (k-1)*BRDSPLITFACTOR.+(1:BRDSPLITFACTOR)
+    fullblock= (g>1|| secondsweep)
+    
+
+    @unroll for idx in 0:1
+        @unroll for dolq in 0:1
+    
+        if (fullblock)
+            loadblockintocache(tilecol,input, k,i,rowidx+TILESIZE*(idx+dolq),colidx+TILESIZE*(idx), nbrows;doqr= (dolq==1))
+        else
+            loadonlyfirstrow(tilecol, input, k,i,colidx,nbrows)
+        end
+
+        if (i==1)
+            @unroll for j in 1:BRDSPLITFACTOR
+                tilecol_cache[j+BRDSPLITFACTOR*(k-1)]=  tilecol[j]
+            end
+        end
+        (k==1) &&  (tilecol_first[i]=tilecol[1])
+        
+        @synchronize
+        mulvecvec_split_exclfirst(view(tilecol_cache,krange), tilecol,view(cache2,:,i), k,0)
+ 
+        @synchronize
+        pivotel=tilecol_cache[1]
+        tmpsumiter = accumulatevals(view(cache2,:,1))
+        tmp_sum = accumulatevals(view(cache2,:,i))
+        
+        newvalue, factor,execiter = calc_factor(pivotel, tmpsumiter, tmp_sum, tilecol_first[i] )
+        updatevector(tilecol , view(tilecol_cache,krange) , factor,k, execiter && fullblock && (i>1))
+
+        if (i==1)  
+                @unroll for j in (1+Int(k==1)):BRDSPLITFACTOR
+                    tilecol[j] = zero(eltype(input))
+                end
+        end
+        (k==1 && execiter) && (tilecol[1]-=factor*newvalue)
+        
+
+        if (fullblock)
+            sendblockbacktomem(input, tilecol, k, i, rowidx+TILESIZE*(idx+dolq),colidx+TILESIZE*(idx), nbrows;doqr= (dolq==1))
+        elseif (i==1)
+            sendbackonlyfirstrow(tilecol, input, k,i,colidx,nbrows)
+        end
+        (i==1 && k==1) && (tilecol_cache[1]=newvalue)
+        
+        @synchronize
+        @unroll for blockidx in 0:1
+            if !fullblock
+                fullblock=true
+                continue
+            end
+            @unroll for muliter in (1-blockidx):(BRDTILESPERTILE-1)
+
+                loadblockintocache(tilecol,input, k,i,rowidx+TILESIZE*(idx+dolq)+(1-dolq)*(BRDSUBTILE*muliter+blockidx*TILESIZE),colidx+TILESIZE*(idx)+(dolq)*(BRDSUBTILE*muliter+blockidx*TILESIZE), nbrows; doqr= (dolq==1))
+                (k==1) && (tilecol_first[i]=tilecol[1])
+                mulvecvec_split_exclfirst(view(tilecol_cache,krange),  tilecol,view(cache2,:,i), k,1)
+
+                @synchronize
+
+                tmp_sum = accumulatevals(view(cache2,:,i))
+                factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,tilecol_first[i] ,newvalue)
+                updatevector(tilecol , view(tilecol_cache,krange) , factor,k, execiter)
+                (k==1 && execiter) &&  (tilecol[1]-=factor*newvalue)
+
+                sendblockbacktomem(input, tilecol, k, i, rowidx+TILESIZE*(idx+dolq)+(1-dolq)*(BRDSUBTILE*muliter+blockidx*TILESIZE),colidx+TILESIZE*(idx)+(dolq)*(BRDSUBTILE*muliter+blockidx*TILESIZE), nbrows;doqr= (dolq==1))
+                
+                @synchronize
+
+            end
+        end
+        
+
+    end
+    end
+
+    
+end
+
+@inline function loadonlyfirstrow(cache, input, k,i,colidx,nbrows)
+    @unroll for j in 1:BRDSPLITFACTOR
+        cache[j] = (i==1 && colidx+(k-1)*BRDSPLITFACTOR+j <=nbrows) ? input[1,colidx+(k-1)*BRDSPLITFACTOR+j] :  zero(eltype(input))
+    end
+end
+
+@inline function sendbackonlyfirstrow(cache, input, k,i,colidx,nbrows)
+    @unroll for j in 1:BRDSPLITFACTOR
+        if (i==1 && colidx+(k-1)*BRDSPLITFACTOR+j <=nbrows)
+            input[1,colidx+(k-1)*BRDSPLITFACTOR+j] =cache[j]
+        end
+    end
+end
+
+
+
+@inline function loadblockintocache(cache, input, k::Int, i::Int, rowidx::Int, colidx::Int, nbrows::Int; doqr::Bool=true)
         @unroll for j in 1:BRDSPLITFACTOR
-            cache[(k-1)*BRDSPLITFACTOR+j,i] = 
-                    (rowidx+(k-1)*BRDSPLITFACTOR+j<=nbrows && colidx+i<=nbrows) ? 
-                    input[rowidx+(k-1)*BRDSPLITFACTOR+j,colidx+i] : zero(eltype(input))
+            idx_x = doqr ? (k-1)*BRDSPLITFACTOR+j : i
+            idx_y = doqr ? i : (k-1)*BRDSPLITFACTOR+j
+            cache[j] = 
+                    (rowidx+idx_x<=nbrows && colidx+idx_y<=nbrows) ? 
+                    input[rowidx+idx_x,colidx+idx_y] : zero(eltype(input))
         end
 end
-
-@inline function mulvecvec_split_exclfirst(vec1, vec2,cache2, k::Int, nonfirst::Int )
-    tmp_sum = zero(eltype(vec1))
-    @unroll for j in 1:BRDSPLITFACTOR
-        tmp_sum+= ((k+j+nonfirst==2) ? zero(eltype(vec1)) : vec1[(k-1)*BRDSPLITFACTOR+j]*vec2[(k-1)*BRDSPLITFACTOR+j])
-    end
-    cache2[k]=tmp_sum
-end
-
-
-@inline function sendblockbacktomem(input, cache, k::Int, i::Int, rowidx::Int, colidx::Int, nbrows::Int)
+@inline function sendblockbacktomem(input, cache, k::Int, i::Int, rowidx::Int, colidx::Int, nbrows::Int; doqr::Bool=true)
         @unroll for j in 1:BRDSPLITFACTOR
-            if (rowidx+(k-1)*BRDSPLITFACTOR+j<=nbrows && colidx+i<=nbrows)
-                input[rowidx+(k-1)*BRDSPLITFACTOR+j,colidx+i] = cache[(k-1)*BRDSPLITFACTOR+j,i]
+            idx_x = doqr ? (k-1)*BRDSPLITFACTOR+j : i
+            idx_y = doqr ? i : (k-1)*BRDSPLITFACTOR+j
+            if (rowidx+idx_x<=nbrows && colidx+idx_y<=nbrows)
+                input[rowidx+idx_x,colidx+idx_y] = cache[j]
             end
         end
 end
 
 
+@inline function mulvecvec_split_exclfirst(vec1, vec2,cache2, k::Int, nonfirst::Int )
+    tmp_sum = zero(eltype(vec1))
+    @unroll for j in 1:BRDSPLITFACTOR
+        tmp_sum+= ((k+j+nonfirst==2) ? zero(eltype(vec1)) : vec1[j]*vec2[j])
+    end
+    cache2[k]=tmp_sum
+end
+
+
+
+
 @inline function calc_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
+    execiter = !(abs(unorm)<2*floatmin(T)) 
     newvalue = u1 + sign(u1) *sqrt(u1*u1+unorm)
+    if ( abs(unorm)<2*floatmin(T) && abs(uv)<2*floatmin(T) )
+        return 2u1, (v1)/ ( u1), execiter
+    end
     factor = (uv +newvalue*v1)*2/ (unorm + newvalue*newvalue)
     if ( isinf(factor))
         factor = (uv/(newvalue*newvalue)  +v1/newvalue)*2/ (unorm/(newvalue*newvalue) + 1)
     end
-    return newvalue, factor
+    
+    return newvalue, factor, execiter
 end
 
-@inline function calc_factor2(newvalue::T, unorm::T, uv::T) where {T<:Number}
+@inline function calc_factor2( u1::T, unorm::T, uv::T, v1::T, newvalue::T) where {T<:Number}
+    if ( abs(unorm)<2*floatmin(T) && abs(newvalue*newvalue)<2*floatmin(T) )
+        return (v1)/ ( u1)
+    end
     factor = uv*2/ (unorm + newvalue*newvalue)
     if ( isinf(factor))
         factor = uv/(newvalue*newvalue) *2/ (unorm/(newvalue*newvalue) + 1)
@@ -224,204 +388,55 @@ end
     return factor
 end
 
-@inline function updatevector(vec1, vec2, factor::Number,k::Int)
-    @unroll for j in 1:BRDSPLITFACTOR
-        vec1[(k-1)*BRDSPLITFACTOR+j]-=((k+j==2) ?  zero(eltype(vec1)) : factor* vec2[(k-1)*BRDSPLITFACTOR+j])
+@inline function updatevector(vec1, vec2, factor::Number,k::Int,execute::Bool)
+    if (execute)
+        @unroll for j in 1:BRDSPLITFACTOR
+            vec1[j]-=((k+j==2) ?  zero(eltype(vec1)) : factor* vec2[j])
+        end
     end
 end
 
 
 
-#=
 
-@kernel cpu=false inbounds=true unsafe_indices=false function brdkernel!(input, nbrows, secondsweep)
-    k,i,l = @index(Local, NTuple)
-    g = @index(Group, Linear)
-    rowidx= -TILESIZE+1+Int(secondsweep)*2TILESIZE +(g-1)*(4TILESIZE-1)
-    colidx= rowidx + TILESIZE
-    cache = @localmem eltype(input) (TILESIZE+1, TILESIZE,2)
-    cache2 = @localmem eltype(input) (BRDSPLIT+1,TILESIZE,2)
-
-
-    fullblock= (g>1 || l==2 || secondsweep)
-    
-    if (l==1)
-        if (fullblock)
-            for j in 1:BRDSPLITFACTOR
-                cache[(k-1)*BRDSPLITFACTOR+j,i,1] = 
-                        (rowidx+(k-1)*BRDSPLITFACTOR+j<=nbrows && colidx+i<=nbrows) ? 
-                        input[rowidx+(k-1)*BRDSPLITFACTOR+j,colidx+i] : zero(eltype(input))
-            end
-        else
-            for j in 1:BRDSPLITFACTOR
-                cache[(k-1)*BRDSPLITFACTOR+j,i,1] = zero(eltype(input))
-            end
-            if (k==1)
-                cache[1,i,1] = (colidx+i <=nbrows) ?  input[1,colidx+i] : zero(eltype(input))
-            end
+@inline function accumulatevals(toacc)
+    res = zero(eltype(toacc))
+        @unroll for j = 1:BRDSPLIT
+            res+= toacc[j]
         end
-    end
-
-    idxiter = 0
-    idxcurr = l-1 
-
-    for idx in 0:1
-        idxiter+=1
-        if (idxiter>2)
-            idxiter=1
-        end
-        idxcurr+=1
-        if (idxcurr>2)
-            idxcurr=1
-        end
-        
-        if (l==2)
-            for j in 1:BRDSPLITFACTOR
-                cache[(k-1)*BRDSPLITFACTOR+j,i,idxcurr] = 
-                            (rowidx+(k-1)*BRDSPLITFACTOR+j+TILESIZE*(1+idx)<= nbrows && colidx+i+idx*TILESIZE<=nbrows) ? 
-                            input[rowidx+(k-1)*BRDSPLITFACTOR+j+TILESIZE*(1+idx),colidx+i+idx*TILESIZE] : zero(eltype(input))
-            end
-        end
-        
-
-       @synchronize
-        tmp_sum = zero(eltype(input))
-        for j in 1:BRDSPLITFACTOR
-            tmp_sum+= ((k+j==2) ? zero(eltype(input)) : cache[1,(k-1)*BRDSPLITFACTOR+j,idxiter]*cache[i,(k-1)*BRDSPLITFACTOR+j,idxcurr])
-        end
-        cache2[k,i,idxcurr]=tmp_sum
-
-        @synchronize
-        
-        tmpsumiter = zero(eltype(input))
-        tmp_sum = zero(eltype(input))
-        for j = 1:BRDSPLIT
-            tmpsumiter+= cache2[j,1,idxiter]
-            tmp_sum += cache2[j,i,idxcurr]
-        end
-        
-        newvalue = cache[1,1,idxiter] +  sign(cache[1,1,idxiter])*sqrt(tmpsumiter+ cache[1,1,idxiter]*cache[1,1,idxiter])
-        factor = (tmp_sum+newvalue*cache[i,1,idxcurr]) *2/ (tmpsumiter+newvalue*newvalue)
-        if (isinf(factor))
-            factor = (tmp_sum/(newvalue*newvalue)+cache[i,1,idxcurr]/newvalue) *2/ (tmpsumiter/(newvalue*newvalue)+1)
-        end
-        
-        if (fullblock && (i>1||l==2))
-            for j in 1:BRDSPLITFACTOR
-                cache[i,(k-1)*BRDSPLITFACTOR+j,idxcurr]-=((k+j==2) ?  zero(eltype(input)) : factor* cache[1,(k-1)*BRDSPLITFACTOR+j,idxiter])
-            end
-        end
-        
-        @synchronize
-
-        if (k==1 && i>1 &&l==1)
-            cache[1,i,idxiter]= zero(eltype(input))
-        end
-        if (k==1)
-            cache[i,1,idxcurr]-=factor*newvalue
-        end
-
-        @synchronize
-
-        if(l==1) 
-            if (fullblock)
-                for j in 1:BRDSPLITFACTOR
-                    if (rowidx+(k-1)*BRDSPLITFACTOR+j+(l-1+idx)*TILESIZE<=nbrows && colidx+i+idx*TILESIZE<=nbrows)
-                        input[rowidx+(k-1)*BRDSPLITFACTOR+j+(l-1+idx)*TILESIZE,colidx+i+idx*TILESIZE] = cache[(k-1)*BRDSPLITFACTOR+j,i,idxiter]
-                    end
-                end
-            elseif (k==1)
-                if (colidx+i<=nbrows)
-                    input[1,colidx+i] = cache[1,i,idxiter] 
-                end
-            end
-        end
-
-
-        ##########################################################################
-
-
-        idxiter+=1
-        if (idxiter>2)
-            idxiter=1
-        end
-        idxcurr+=1
-        if (idxcurr>2)
-            idxcurr=1
-        end
-        @synchronize
-        if (l==2) 
-            for j in 1:BRDSPLITFACTOR
-                cache[(k-1)*BRDSPLITFACTOR+j,i,idxcurr] = 
-                        (rowidx+(k-1)*BRDSPLITFACTOR+j+TILESIZE*(1+idx)<=nbrows && colidx+TILESIZE*(1+idx)+i<=nbrows) ? 
-                        input[rowidx+(k-1)*BRDSPLITFACTOR+j+TILESIZE*(1+idx),colidx+TILESIZE*(1+idx)+i] : zero(eltype(input))
-            end
-        end
-        @synchronize
-        tmp_sum = zero(eltype(input))
-        for j in 1:BRDSPLITFACTOR
-            tmp_sum+= ((k+j==2) ? zero(eltype(input)) : cache[(k-1)*BRDSPLITFACTOR+j,1,idxiter]*cache[(k-1)*BRDSPLITFACTOR+j,i,idxcurr])
-        end
-        cache2[k,i,idxcurr]=tmp_sum
-
-        @synchronize
-  
-
-        tmpsumiter = zero(eltype(input))
-        tmp_sum = zero(eltype(input))
-        for j = 1:BRDSPLIT
-            tmpsumiter+= cache2[j,1,idxiter]
-            tmp_sum += cache2[j,i,idxcurr]
-        end
-        
-        newvalue = cache[1,1,idxiter] +  sign(cache[1,1,idxiter])*sqrt(tmpsumiter+ cache[1,1,idxiter]*cache[1,1,idxiter])
-
-        factor = (tmp_sum+cache[1,i,idxcurr]*newvalue) *2/ (tmpsumiter+newvalue*newvalue)
-        if(isinf(factor))
-            factor = (tmp_sum/(newvalue*newvalue)+cache[i,1,idxcurr]/newvalue) *2/ (tmpsumiter/(newvalue*newvalue)+1)
-        end
-
-        @synchronize
-        
-        if ((i>1 || l==2))
-            for j in 1:BRDSPLITFACTOR
-                cache[(k-1)*BRDSPLITFACTOR+j,i,idxcurr]-=((k+j==2) ?  zero(eltype(input)) : factor* cache[(k-1)*BRDSPLITFACTOR+j,1,idxiter])
-            end
-        end
-
-
-        @synchronize
-        
-        if (k==1 && i>1 &&l==1)
-            cache[i,1,idxiter]= zero(eltype(input))
-        end
-        if (k==1)
-            cache[1,i,idxcurr]-=factor*newvalue
-        end
-        @synchronize
-
-        if (l==1)
-            for j in 1:BRDSPLITFACTOR
-                if (rowidx+(k-1)*BRDSPLITFACTOR+j+TILESIZE*(1+idx)<=nbrows && colidx+i+idx*TILESIZE<= nbrows)
-                    input[rowidx+(k-1)*BRDSPLITFACTOR+j+TILESIZE*(1+idx),colidx+i+idx*TILESIZE]=cache[(k-1)*BRDSPLITFACTOR+j,i,idxiter]
-                end
-            end
-        end
-
-        @synchronize
-
-        fullblock=true
-    end
-
-    if (l==2)
-        for j in 1:BRDSPLITFACTOR
-            if (rowidx+(k-1)*BRDSPLITFACTOR+j+2TILESIZE<= nbrows && colidx+i+2TILESIZE<= nbrows)
-                input[rowidx+(k-1)*BRDSPLITFACTOR+j+2TILESIZE,colidx+i+2TILESIZE]=cache[(k-1)*BRDSPLITFACTOR+j,i,idxcurr]
-            end
-        end
-    end
-    
-
-
+    return res
 end
+
+
+
+
+#==
+function testbrd(n, elty)
+    bw=TILESIZE
+    a=tril(triu(CUDA.randn(elty,n,n)),bw)
+    svdvalref=svdvals(a, alg=CUDA.CUSOLVER.QRAlgorithm())
+    mygbbrd1!(a)
+    x=svdvals((a), alg=CUDA.CUSOLVER.QRAlgorithm())
+    er1 =(norm(x - svdvalref)/norm(svdvalref))
+    a[1:n+1:end].=0
+    a[n+1:n+1:end].=0
+    println(iszero(a))
+    a=tril(triu(CUDA.randn(elty,n,n)),bw)
+    svdvalref=svdvals(a, alg=CUDA.CUSOLVER.QRAlgorithm())
+    mygbbrd2!(a)
+    x=svdvals((a), alg=CUDA.CUSOLVER.QRAlgorithm())
+    er2 =(norm(x - svdvalref)/norm(svdvalref))
+    a[1:n+1:end].=0
+    a[n+1:n+1:end].=0
+    println(iszero(a))
+    a=tril(triu(CUDA.randn(elty,n,n)),bw)
+    svdvalref=svdvals((a), alg=CUDA.CUSOLVER.QRAlgorithm())
+    mygbbrd3!(a)
+    x=svdvals((a),alg=CUDA.CUSOLVER.QRAlgorithm())
+    er3=(norm(x - svdvalref)/norm(svdvalref))
+    a[1:n+1:end].=0
+    a[n+1:n+1:end].=0
+    println( iszero(a))
+    return er1,er2,er3
+end 
 =#
