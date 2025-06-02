@@ -1,4 +1,4 @@
-This sub-repository contains a julia-native GPU-accelerated bidiagonal reduction for singular values, and uses LAPACK for getting singular values from a bidiagonal matrix. To runa benchmark on your system:
+This sub-repository contains a julia-native GPU-accelerated bidiagonal reduction for singular values, and uses LAPACK for getting singular values from a bidiagonal matrix. To run a benchmark on your system:
 
 ```
 wget https://julialang-s3.julialang.org/bin/linux/x64/1.11/julia-1.11.5-linux-x86_64.tar.gz
@@ -23,3 +23,7 @@ Param 8: use a reduced memory BRD Y/N (optional, default N)
 Param 8: Minimum runtime for benchmarking per matrix size (optional, default 2000)
 Param 9: Amount of runs per benchmark between sync (optional, default 20)
 
+For the optimized bandreduction only, replace the last line as follows:
+```
+../../-1.11.5/bin/julia --project=. .\benchmark\benchbrd.jl --single --hardware cuda --tilesize 64 --bandwidth 128 --subtilesize 128 --maxblocks 24
+```
