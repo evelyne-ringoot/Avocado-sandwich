@@ -1,63 +1,67 @@
-using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf
+using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dates
 
-if (ARGS[2]=="H")
-    elty=Float16
-elseif (ARGS[2]=="S")
-    elty=Float32
-elseif (ARGS[2]=="D")
-    elty=Float64
-else
-    error("specify correct params")
-end
-
-if (ARGS[1]=="AMD")
-    include("vendorspecific/benchmark_amd.jl")
-elseif (ARGS[1]=="CUDA")
-    include("vendorspecific/benchmark_cuda.jl")
-elseif (ARGS[1]=="ONE")
-    include("vendorspecific/benchmark_oneapi.jl")
-elseif (ARGS[1]=="METAL")
-    include("vendorspecific/benchmark_metal.jl")
-else
-    error("specify correct params")
-end
-
-arty=typeof(KernelAbstractions.zeros(backend,elty,2,2))
-
-const TILESIZE = length(ARGS)>=3 ? parse(Int,ARGS[3]) : 64
-const BRDSPLIT = 64 #  length(ARGS)>=4 ? parse(Int,ARGS[4]) : 8
-const BRDTILESPERTILE = length(ARGS)>=5 ? parse(Int,ARGS[5]) : 1
-const BRDSUBTILE2 = length(ARGS)>=5 ? parse(Int,ARGS[5]) : 128 # required larger than TILESIZE
-const MINTIME = length(ARGS)>=6 ? parse(Int,ARGS[6]) : 2000
-const NUMRUMS= length(ARGS)>=7 ? parse(Int,ARGS[7]) : 20
-
-include("../src/brdgpu.jl")
+include("parseinputargs.jl")
+include("../src/brdgpunew.jl")
 include("benchfuncs.jl")
 
-sizes=[ 512, 1024, 2048, 4096,8192]#,, 16384 32768, 65536] #
+print("starting code : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+sizes=[128,256,512,1024,2048,4096,8192 ]#,,  32768, 65536] # 2048, 4096,8192
 timings=ones(length(sizes))*1000000000
 errors=zeros(length(sizes))
-println( "Checking correctness")
+size_i=4BW
+b=tril(triu(randn!(KernelAbstractions.zeros(backend,elty,size_i,size_i))),BW)
+print("matrix generated, compiling started at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+mygbbrd4!(b)
+print("first compile done at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+
+#=
+n=size_i
+    Int(BW/TILESIZE):-1:1
+        A=copy(b)
+        mygbbrd4!(A)
+        KernelAbstractions.synchronize(backend)
+        norm(svdvals(A)-svdvals(b))/norm(svdvals(b))
+        1:(n-1)
+        k=1
+        bwiter=2
+
+    k=1
+        brd4!(view(A,k:n,k:n),min(k,1+cld((n-k), (3TILESIZE-1))),bwiter)
+                for k in 1:(n-1)
+            brd4!(view(A,k:n,k:n),min(k,1+cld((n-k), (3TILESIZE*bwiter-1))),bwiter)
+        end
+=#
+
+
+print( "Checking correctness at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
-    a=tril(triu(randn!(KernelAbstractions.zeros(backend,elty,size_i,size_i))),TILESIZE)
-    aref=svdvals(a, alg=CUDA.CUSOLVER.QRAlgorithm())
-    mygbbrd3!(a)
+    a=tril(triu(randn!(KernelAbstractions.zeros(backend,elty,size_i,size_i))),BW)
+    aref=svdvals(Float64.(a), alg=CUDA.CUSOLVER.QRAlgorithm())
+    mygbbrd4!(a)
     KernelAbstractions.synchronize(backend)
-    aout=svdvals(a, alg=CUDA.CUSOLVER.QRAlgorithm())
+    aout=svdvals(Float64.(a), alg=CUDA.CUSOLVER.QRAlgorithm())
     errors[i]=norm(aref-aout)/norm(aout)
 end
+print("done accuracy : ")
+println(Dates.format(now(), "HH:MM:SS")  )
 
-
-
+#=
 println( "warump KA only");
 for (i,size_i) in enumerate(sizes)
-    #timings[i] = min( benchmark_ms(size_i,mygbbrd3!), timings[i])
+    timings[i] = min( benchmark_ms(size_i,mygbbrd3!), timings[i])
 end
-
-println( "run KA only");
+=#
+print( "becnhmark KA at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
-    timings[i] = min( benchmark_ms_large(size_i,mygbbrd3!), timings[i])
+    timings[i] = min( benchmark_ms_large(size_i,mygbbrd4!), timings[i])
 end
+print("done at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
 
 println("BRD");
 println( " size    RRMSE    time (ms)  ");
@@ -65,4 +69,3 @@ println(" ------  --------  ----------   ");
 for (i,size_i) in enumerate(sizes)
     @printf " %4d   %8.02e    %8.02f \n" size_i errors[i] timings[i] 
 end  
-
