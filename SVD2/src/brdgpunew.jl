@@ -1,8 +1,8 @@
 
 using KernelAbstractions.Extras: @unroll
-const SUBTILEFACTOR = (BRDSUBTILE2 >= TILESIZE ? 1 : Int(TILESIZE/BRDSUBTILE2))
+const SUBTILEFACTOR = (BRDMULSIZE >= BRDWIDTH ? 1 : Int(BRDWIDTH/BRDMULSIZE))
 
-@inline packedrowidx(rowidx::Int,colidx::Int, packed::Bool) = (packed ? (2BW+1-(rowidx-colidx)) : rowidx) 
+@inline packedrowidx(rowidx::Int,colidx::Int, packed::Bool) = (packed ? (2BW+1+(rowidx-colidx),colidx) : (rowidx,colidx)) 
 
 struct PackedBandGPUMatrix{T} 
     data::AbstractGPUMatrix{T}     # diagonals plus bufferspace above and below
@@ -21,232 +21,222 @@ function PackedBandGPUMatrix(input::AbstractGPUMatrix{T},bw::Int) where {T}
 end
 function PackedBandGPUMatrix(input::Matrix{T},workspace::AbstractGPUMatrix{T},bw::Int) where {T}
     n=size(input,1)
-    zero.(workspace)
+    workspace.=0
     for i in 0:bw
-        workspace[2bw+1-i,1:(end-i)].=input[i*n+1:n+1:end]
+        workspace[2bw+1-i,i+1:(end)].=input[i*n+1:n+1:end]
     end
-    return PackedBandGPUMatrix{T}(d,bw)
+    return PackedBandGPUMatrix{T}(workspace,bw)
 end
 
-function randPackedBandGPUMatrix(n::Int,bw::Int,T::DataType)
-    d=KernelAbstractions.zeros(backend,T,bw*3+1,n)
-    rand!(d)
-    return PackedBandGPUMatrix{T}(d,bw)
+
+function Matrix_frombidiag!(output::AbstractGPUMatrix{T},input::PackedBandGPUMatrix{T}) where T
+    output.=0
+    n=size(output,1)
+    bw=input.bw
+    output[1:n+1:end].=input.data[2bw+1,1:(end)]
+    output[n+1:n+1:end].=input.data[2bw,2:(end)]
+    return output
 end
 
 function Matrix_frombidiag!(output::Matrix{T},input::PackedBandGPUMatrix{T}) where T
-    zero.(output)
+    output.=0
     n=size(output,1)
     bw=input.bw
-    output[2bw+1,1:(end-i)].=input[1:n+1:end]
-    output[2bw,1:(end-1)].=input[n+1:n+1:end]
+    output[1:n+1:end].=input.data[2bw+1,1:(end)]
+    output[n+1:n+1:end].=input.data[2bw,2:(end)]
     return output
 end
 
 
 function brd4!(A::AnyGPUMatrix{T}, noblocks::Int,bwiter::Int,packed::Bool) where T 
-    CURRTILE=min(BRDSUBTILE2, TILESIZE*(bwiter+1))
+    CURRTILE=min(BRDMULSIZE, BRDWIDTH*(bwiter+1))
         brdkernel_large_v2!(backend, (CURRTILE))(A,size(A,2), 0, bwiter, cld(noblocks,MAXBLOCKS), packed, ndrange=(CURRTILE*min(noblocks,MAXBLOCKS)))
         brdkernel_large_v2!(backend, (CURRTILE))(A,size(A,2), 1, bwiter, cld(noblocks,MAXBLOCKS), packed, ndrange=(CURRTILE*min(noblocks,MAXBLOCKS)))
         brdkernel_large_v2!(backend, (CURRTILE))(A,size(A,2), 2, bwiter, cld(noblocks,MAXBLOCKS), packed, ndrange=(CURRTILE*min(noblocks,MAXBLOCKS)))
 end
 
-function mygbbrd4!(A::AnyGPUMatrix{T}) where T 
+function mygbbrd!(A::AnyGPUMatrix{T}) where T 
     bw=BW
     n=size(A,1)
-    for bwiter in Int(bw/TILESIZE):-1:1
+    for bwiter in Int(bw/BRDWIDTH):-1:1
         for k in 1:(n-1)
-            brd4!(view(A,k:n,k:n),min(k,1+cld((n-k), (3TILESIZE*bwiter-1))),bwiter,false)
+            brd4!(view(A,k:n,k:n),min(k,1+cld((n-k), (3BRDWIDTH*bwiter-1))),bwiter,false)
         end
     end
 end 
 
-function mygbbrd4_packed!(A::AbstractGPUMatrix{T}) where T 
+function mygbbrd_packed!(A::AbstractGPUMatrix{T}) where T 
     bw=BW
     n=size(A,1)
     Apacked=PackedBandGPUMatrix(A,BW)
-
-    for bwiter in Int(bw/TILESIZE):-1:1
+    KernelAbstractions.synchronize(backend)
+    for bwiter in Int(bw/BRDWIDTH):-1:1
         for k in 1:(n-1)
-            brd4!(view(Apacked,:,k:n),min(k,1+cld((n-k), (3TILESIZE*bwiter-1))),bwiter,true)
+            brd4!(view(Apacked.data,:,k:n),min(k,1+cld((n-k), (3BRDWIDTH*bwiter-1))),bwiter,true)
         end
     end
+    KernelAbstractions.synchronize(backend)
     return Matrix_frombidiag!(A,Apacked)
 end 
+
+function mygbbrd_packed!(A::AbstractMatrix{T}, workspace::AbstractGPUMatrix{T}) where T 
+    bw=BW
+    n=size(A,1)
+    Apacked=PackedBandGPUMatrix(A,workspace,BW)
+    KernelAbstractions.synchronize(backend)
+    for bwiter in Int(bw/BRDWIDTH):-1:1
+        for k in 1:(n-1)
+            brd4!(view(Apacked.data,:,k:n),min(k,1+cld((n-k), (3BRDWIDTH*bwiter-1))),bwiter,true)
+        end
+    end
+    KernelAbstractions.synchronize(backend)
+    return Matrix_frombidiag!(A,Apacked)
+end 
+
+function mygbbrd_packed_nocomm!(A::AbstractGPUMatrix{T}) where T 
+    bw=BW
+    n=size(A,2)
+    Apacked=PackedBandGPUMatrix{T}(A,bw)
+    for bwiter in Int(bw/BRDWIDTH):-1:1
+        for k in 1:(n-1)
+            brd4!(view(Apacked.data,:,k:n),min(k,1+cld((n-k), (3BRDWIDTH*bwiter-1))),bwiter,true)
+        end
+    end
+    return Apacked.data
+end 
+
 
 @kernel cpu=false inbounds=true unsafe_indices=false function brdkernel_large_v2!(input, nbrows::Int, offset::Int,bwiter::Int, nbblocks::Int, packed::Bool)
     i = @index(Local, Linear)
     g = @index(Group, Linear)
-    tilecol = @private eltype(input) (TILESIZE+1)
-    tilecol_cache = @localmem eltype(input) (TILESIZE+1)
+    tilecol = @private eltype(input) (BRDWIDTH+1)
+    tilecol_cache = @localmem eltype(input) (BRDWIDTH+1)
 
     for nbrun in 0:(nbblocks-1)
         
-        rowidx= -TILESIZE+(bwiter==1)+offset*TILESIZE*bwiter +(g-1+nbrun*MAXBLOCKS)*(3TILESIZE*bwiter-1)
-        colidx= rowidx + TILESIZE *bwiter
-        fullblock= (g>1||nbrun>0|| offset>0 || i>TILESIZE)
+        rowidx= -BRDWIDTH+(bwiter==1)+offset*BRDWIDTH*bwiter +(g-1+nbrun*MAXBLOCKS)*(3BRDWIDTH*bwiter-1)
+        colidx= rowidx + BRDWIDTH *bwiter
+        fullblock= (g>1||nbrun>0|| offset>0 || i>BRDWIDTH)
         
-        (i==1) && (tilecol_cache[TILESIZE+1]=zero(eltype(input)))
-        tilecol[TILESIZE+1]=zero(eltype(input))
-
+        (i==1) && (tilecol_cache[BRDWIDTH+1]=zero(eltype(input)))
+        tilecol[BRDWIDTH+1]=zero(eltype(input))
+        @synchronize
             @unroll for dolq in 0:1
-                currrowidx=rowidx+TILESIZE*bwiter*dolq
+                currrowidx=rowidx+BRDWIDTH*bwiter*dolq
                 currcolidx=colidx
-                i_corr=i+Int(bwiter>1)
-
-                if (i<=TILESIZE)
+            
+                if (i<=BRDWIDTH)
                     @unroll for k in 1:(SUBTILEFACTOR)
                         idx_x = dolq==1 ? k+SUBTILEFACTOR*(i-1) : 1
                         idx_y = dolq==1 ? 1 : k+SUBTILEFACTOR*(i-1)
                         row= (fullblock ? currrowidx+idx_x : 1 )
                         col= currcolidx+idx_y
                         tilecol_cache[k+SUBTILEFACTOR*(i-1)] =  (row <=nbrows && col <=nbrows) ? 
-                                input[row,col] : zero(eltype(input))
+                                input[packedrowidx(row,col,packed)...] : zero(eltype(input))
+                        if (row <=nbrows && col <=nbrows)
+                            input[packedrowidx(row,col,packed)...] = zero(eltype(input))
+                        end
+
                     end
                 end
                 if (i==1 && bwiter>1)
-                    idx_x = dolq==1 ? TILESIZE+1 : 1
-                    idx_y = dolq==1 ? 1 : TILESIZE+1
+                    idx_x = dolq==1 ? BRDWIDTH+1 : 1
+                    idx_y = dolq==1 ? 1 : BRDWIDTH+1
                     row =(fullblock ? currrowidx+idx_x : 1 )
                     col = currcolidx+idx_y
-                    tilecol_cache[TILESIZE+1]= ( row <=nbrows && col <=nbrows) ? 
-                        input[row,col] : zero(eltype(input))
+                    tilecol_cache[BRDWIDTH+1]= ( row <=nbrows && col <=nbrows) ? 
+                        input[packedrowidx(row,col,packed)...] : zero(eltype(input))
+                    if (row <=nbrows && col <=nbrows)
+                            input[packedrowidx(row,col,packed)...] = zero(eltype(input))
+                        end
                 end
-            if ((fullblock && (i>1|| bwiter>1 )))
-                @unroll for j in 1:TILESIZE
-                    idx_x = dolq==1 ? j : i_corr
-                    idx_y = dolq==1 ? i_corr : j
-                    tilecol[j] =   (currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows) ? 
-                            input[currrowidx+idx_x,currcolidx+idx_y] : zero(eltype(input))
-                end
-                idx_x = dolq==1 ? TILESIZE+1 : i_corr
-                idx_y = dolq==1 ? i_corr : TILESIZE+1
-                tilecol[TILESIZE+1] = (bwiter>1 && currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows) ?
-                    input[ currrowidx+idx_x ,currcolidx+idx_y] : zero(eltype(input))
-            end
-            
-            @synchronize
-            tmp_sum = mulvecvec_nosplit(tilecol, tilecol_cache,0)
-            tmpsumiter = mulvecvec_nosplit(tilecol_cache, tilecol_cache,0)
-            
-            pivotel=tilecol_cache[1]
-            
-            newvalue, factor,execiter = calc_factor(pivotel, tmpsumiter, tmp_sum, tilecol[1] )
 
-            (i==1)  &&  (tilecol_cache[1]=newvalue)
-            @synchronize
-            updatevector(tilecol , tilecol_cache , factor ,3, execiter && fullblock && (i>1|| bwiter>1))
-            
-            if ((fullblock && (i>1|| bwiter>1)))
-                @unroll for j in 1:TILESIZE
-                    idx_x = dolq==1 ? j : i_corr
-                    idx_y = dolq==1 ? i_corr : j
-                    if (currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows)
-                        input[currrowidx+idx_x,currcolidx+idx_y] = tilecol[j]
-                    end
+                @synchronize
+                
+                
+                tmpsumiter = mulvecvec_nosplit(tilecol_cache, tilecol_cache,0)
+                pivotel=tilecol_cache[1]
+                newvalue, execiter = calc_factor(pivotel, tmpsumiter )
+                if (i==1)
+                            row= (fullblock ? currrowidx+1 : 1 )
+                            col= currcolidx+1
+                        if ( row<=nbrows && col<=nbrows)
+                            input[packedrowidx(row,col,packed)...]  =  pivotel-Int(abs(tmpsumiter)>2*floatmin(eltype(input)))*newvalue
+                        end
+                    tilecol_cache[1]=newvalue
                 end
-                idx_x = dolq==1 ? TILESIZE+1 : i_corr
-                idx_y = dolq==1 ? i_corr : TILESIZE+1
-                if (bwiter>1 && currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows)
-                        input[currrowidx+idx_x,currcolidx+idx_y] = tilecol[TILESIZE+1]
-                end
-            end
-            if (i<=TILESIZE)
-                @unroll for k in 1:(SUBTILEFACTOR)
-                        idx_x = dolq==1 ? k+SUBTILEFACTOR*(i-1) : 1
-                        idx_y = dolq==1 ? 1 : k+SUBTILEFACTOR*(i-1)
-                        row= (fullblock ? currrowidx+idx_x : 1 )
-                        col= currcolidx+idx_y
-                    if ( row<=nbrows && col<=nbrows)
-                        input[row,col]  = (k+i==2) ? pivotel-Int(abs(tmpsumiter)>2*floatmin(eltype(input)))*newvalue : zero(eltype(input))
-                    end
-                end
-            end
-            idx_x = dolq==1 ? TILESIZE+1 : 1
-            idx_y = dolq==1 ? 1 : TILESIZE+1
-            row= (fullblock ? currrowidx+idx_x : 1 )
-            col= currcolidx+idx_y
-            if (i==1 && bwiter>1 && row<=nbrows && col<=nbrows)
-                    input[row,col] = zero(eltype(input))
-            end
-            
-            
-                @unroll for muliter in 1:7
-                    if (((1+bwiter)*TILESIZE)>=(BRDSUBTILE2*(muliter)+i) && (fullblock || muliter>=SUBTILEFACTOR))
+
+                @synchronize
+
+                @unroll for muliter in 0:7
+                    if (((1+bwiter)*BRDWIDTH)>=(BRDMULSIZE*(muliter)+i) && ((fullblock && (i>1|| bwiter>1 ||muliter>0)) || muliter>=SUBTILEFACTOR))
                         
-                        currrowidx=rowidx+TILESIZE*bwiter*dolq+(1-dolq)*(BRDSUBTILE2*muliter+Int(bwiter>1))
-                        currcolidx=colidx+(dolq)*(BRDSUBTILE2*muliter+Int(bwiter>1))     
-                        #@print muliter " " i " " currcolidx " " currrowidx " \n"
+                        currrowidx=rowidx+BRDWIDTH*bwiter*dolq+(1-dolq)*(BRDMULSIZE*muliter+Int(bwiter>1))
+                        currcolidx=colidx+(dolq)*(BRDMULSIZE*muliter+Int(bwiter>1))   
                         
-                        @unroll for j in 1:TILESIZE
+                        @unroll for j in 1:BRDWIDTH
                             idx_x = dolq==1 ? j : i
                             idx_y = dolq==1 ? i : j
                             tilecol[j] = (currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows) ? 
-                                    input[currrowidx+idx_x,currcolidx+idx_y] : zero(eltype(input))
+                                    input[packedrowidx(currrowidx+idx_x,currcolidx+idx_y,packed)...] : zero(eltype(input))
                         end
-                        idx_x = dolq==1 ? TILESIZE+1 : i
-                        idx_y = dolq==1 ? i : TILESIZE+1
-                        tilecol[TILESIZE+1] = (bwiter>1 && currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows ) ?
-                            input[ currrowidx+idx_x ,currcolidx+idx_y] : zero(eltype(input))
+                        idx_x = dolq==1 ? BRDWIDTH+1 : i
+                        idx_y = dolq==1 ? i : BRDWIDTH+1
+                        tilecol[BRDWIDTH+1] = (bwiter>1 && currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows ) ?
+                            input[ packedrowidx(currrowidx+idx_x,currcolidx+idx_y,packed)...] : zero(eltype(input))
 
+                    end
+                    @synchronize
+                    if (((1+bwiter)*BRDWIDTH)>=(BRDMULSIZE*(muliter)+i) && ((fullblock && (i>1|| bwiter>1 ||muliter>0)) || muliter>=SUBTILEFACTOR))
                         tmp_sum = mulvecvec_nosplit(tilecol, tilecol_cache,1)
                         factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,tilecol[1] ,newvalue)
                         updatevector(tilecol , tilecol_cache, factor,3, execiter)
 
                         
-                        @unroll for j in 1:TILESIZE
+                        @unroll for j in 1:BRDWIDTH
                             idx_x = dolq==1 ? j : i
                             idx_y = dolq==1 ? i : j
                             if (currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows)
-                                input[currrowidx+idx_x,currcolidx+idx_y] =tilecol[j] 
+                                input[packedrowidx(currrowidx+idx_x,currcolidx+idx_y,packed)...] =tilecol[j] 
                             end
                         end
-                        idx_x = dolq==1 ? TILESIZE+1 : i
-                        idx_y = dolq==1 ? i : TILESIZE+1
+                        idx_x = dolq==1 ? BRDWIDTH+1 : i
+                        idx_y = dolq==1 ? i : BRDWIDTH+1
                         if (bwiter>1 && currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows)
-                                input[currrowidx+idx_x,currcolidx+idx_y] = tilecol[TILESIZE+1]
+                                input[packedrowidx(currrowidx+idx_x,currcolidx+idx_y,packed)...] = tilecol[BRDWIDTH+1]
                         end
                         
                     end
+                    @synchronize
                 
                 end
+            
             
             fullblock=true
             @synchronize
         end
         end
-
-
     
 end
 
 
-
 @inline function mulvecvec_nosplit(vec1, vec2, nonfirst::Int )
     tmp_sum = zero(eltype(vec1))
-    @unroll for j in 1:TILESIZE+1
+    @unroll for j in 1:BRDWIDTH+1
         tmp_sum+= ((j+nonfirst==1) ? zero(eltype(vec1)) : vec1[j]*vec2[j])
     end
     return tmp_sum
 end
 
 
-@inline function calc_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
+@inline function calc_factor(u1::T, unorm::T) where {T<:Number}
     execiter = !(abs(unorm)<2*floatmin(T)) 
     newvalue = u1 + sign(u1) *sqrt(u1*u1+unorm)
-    if ( abs(unorm)<2*floatmin(T) && abs(uv)<2*floatmin(T) )
-        return 2u1, (v1)/ ( u1), execiter
-    end
-    factor = (uv +newvalue*v1)*2/ (unorm + newvalue*newvalue)
-    if ( isinf(factor))
-        factor = (uv/(newvalue*newvalue)  +v1/newvalue)*2/ (unorm/(newvalue*newvalue) + 1)
-    end
-    
-    return newvalue, factor, execiter
+    return newvalue, execiter
 end
 
 @inline function calc_factor2( u1::T, unorm::T, uv::T, v1::T, newvalue::T) where {T<:Number}
-    if ( abs(unorm)<2*floatmin(T) && abs(newvalue*newvalue)<2*floatmin(T) )
+    if ( abs(newvalue*newvalue)<2*floatmin(T) )
         return (v1)/ ( u1)
     end
     factor = uv*2/ (unorm + newvalue*newvalue)
@@ -258,7 +248,7 @@ end
 
 @inline function updatevector(vec1, vec2, factor::Number,k::Int,execute::Bool)
     if (execute)
-        @unroll for j in 1:TILESIZE+1
+        @unroll for j in 1:BRDWIDTH+1
             vec1[j]-=((k+j==2) ?  zero(eltype(vec1)) : factor* vec2[j])
         end
     end
