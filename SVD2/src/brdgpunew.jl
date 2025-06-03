@@ -154,7 +154,7 @@ end
                 @synchronize
                 
                 
-                tmpsumiter = mulvecvec_nosplit(tilecol_cache, tilecol_cache,0)
+                tmpsumiter = mulvecvec_nosplit(tilecol_cache, tilecol_cache,false)
                 pivotel=tilecol_cache[1]
                 newvalue, execiter = calc_factor(pivotel, tmpsumiter )
                 if (i==1)
@@ -168,7 +168,7 @@ end
 
                 @synchronize
 
-                @unroll for muliter in 0:7
+                for muliter in 0:7
                     if (((1+bwiter)*BRDWIDTH)>=(BRDMULSIZE*(muliter)+i) && ((fullblock && (i>1|| bwiter>1 ||muliter>0)) || muliter>=SUBTILEFACTOR))
                         
                         currrowidx=rowidx+BRDWIDTH*bwiter*dolq+(1-dolq)*(BRDMULSIZE*muliter+Int(bwiter>1))
@@ -188,7 +188,7 @@ end
                     end
                     @synchronize
                     if (((1+bwiter)*BRDWIDTH)>=(BRDMULSIZE*(muliter)+i) && ((fullblock && (i>1|| bwiter>1 ||muliter>0)) || muliter>=SUBTILEFACTOR))
-                        tmp_sum = mulvecvec_nosplit(tilecol, tilecol_cache,1)
+                        tmp_sum = mulvecvec_nosplit(tilecol, tilecol_cache,true)
                         factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,tilecol[1] ,newvalue)
                         updatevector(tilecol , tilecol_cache, factor,3, execiter)
 
@@ -220,10 +220,11 @@ end
 end
 
 
-@inline function mulvecvec_nosplit(vec1, vec2, nonfirst::Int )
-    tmp_sum = zero(eltype(vec1))
-    @unroll for j in 1:BRDWIDTH+1
-        tmp_sum+= ((j+nonfirst==1) ? zero(eltype(vec1)) : vec1[j]*vec2[j])
+@inline function mulvecvec_nosplit(vec1, vec2, inclfirst::Bool )
+    tmp_sum = (inclfirst ?  vec1[1]*vec2[1] : zero(eltype(vec1)) )
+
+    @unroll for j in 2:BRDWIDTH+1
+        tmp_sum+=  vec1[j]*vec2[j]
     end
     return tmp_sum
 end
@@ -248,6 +249,7 @@ end
 
 @inline function updatevector(vec1, vec2, factor::Number,k::Int,execute::Bool)
     if (execute)
+        
         @unroll for j in 1:BRDWIDTH+1
             vec1[j]-=((k+j==2) ?  zero(eltype(vec1)) : factor* vec2[j])
         end
