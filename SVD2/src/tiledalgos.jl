@@ -96,10 +96,6 @@ function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T},
     return A
 end
 
-#=function banddiagsvd(A::AbstractMatrix)
-    d,e = gbbrd!(gbbrd_copy(A,TILESIZE), TILESIZE)
-    return LAPACK.bdsdc!('U', 'N', d, e)[1]
-end=#
 
 function banddiagsvd(A::AbstractGPUMatrix)
     mygbbrd!(A)

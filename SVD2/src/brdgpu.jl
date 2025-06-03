@@ -3,22 +3,6 @@ using KernelAbstractions.Extras: @unroll
 const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
 const BRDSUBTILE = Int(TILESIZE/BRDTILESPERTILE)
 
-struct PackedBandGPUMatrix{T} 
-    data::AbstractGPUMatrix{T}     # diagonals plus bufferspace above and below
-    bw::Int
-    function PackedBandGPUMatrix{T}(d::AbstractGPUMatrix{T},bw::Int) where {T}
-        new{T}(d,bw)
-    end
-end
-function PackedBandGPUMatrix(input::Matrix{T},bw::Int) where {T}
-    n=size(input,1)
-    d=KernelAbstractions.zeros(backend,T,bw*3+1,size(input,2))
-    for i in 0:bw
-        d[2bw+1-i,1:(end-i)].=input[in+1:n+1:end]
-    end
-    return PackedBandGPUMatrix{T}(d,bw)
-end
-
 function brd1!(A::AnyGPUMatrix{T}, noblocks) where T 
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
@@ -42,32 +26,9 @@ function mygbbrd!(A::AnyGPUMatrix{T}) where T
         brd!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
     end
 end
-function mygbbrd1!(A::AnyGPUMatrix{T}) where T 
-    n=size(A,1)
-    for k in 1:(n-1)
-        brd1!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
-    end
-end
-function mygbbrd2!(A::AnyGPUMatrix{T}) where T 
-    n=size(A,1)
-    for k in 1:(n-1)
-        brd2!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
-    end
-end
-function mygbbrd3!(A::AnyGPUMatrix{T}) where T 
-    n=size(A,1)
-    for k in 1:(n-1)
-        brd3!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
-    end
-end 
 
-function mygbbrd_packed!(A::AnyGPUMatrix{T} ) where {T}
-    packed=PackedBandGPUMatrix(A,TILESIZE) 
-    n=size(A,1)
-    for k in 1:(n-1)
-        brd3!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
-    end
-end
+
+
 
 @kernel cpu=false inbounds=true unsafe_indices=false function brdkernel!(input, nbrows, secondsweep)
     k,i,l = @index(Local, NTuple)
@@ -408,35 +369,3 @@ end
 end
 
 
-
-
-#==
-function testbrd(n, elty)
-    bw=TILESIZE
-    a=tril(triu(CUDA.randn(elty,n,n)),bw)
-    svdvalref=svdvals(a, alg=CUDA.CUSOLVER.QRAlgorithm())
-    mygbbrd1!(a)
-    x=svdvals((a), alg=CUDA.CUSOLVER.QRAlgorithm())
-    er1 =(norm(x - svdvalref)/norm(svdvalref))
-    a[1:n+1:end].=0
-    a[n+1:n+1:end].=0
-    println(iszero(a))
-    a=tril(triu(CUDA.randn(elty,n,n)),bw)
-    svdvalref=svdvals(a, alg=CUDA.CUSOLVER.QRAlgorithm())
-    mygbbrd2!(a)
-    x=svdvals((a), alg=CUDA.CUSOLVER.QRAlgorithm())
-    er2 =(norm(x - svdvalref)/norm(svdvalref))
-    a[1:n+1:end].=0
-    a[n+1:n+1:end].=0
-    println(iszero(a))
-    a=tril(triu(CUDA.randn(elty,n,n)),bw)
-    svdvalref=svdvals((a), alg=CUDA.CUSOLVER.QRAlgorithm())
-    mygbbrd3!(a)
-    x=svdvals((a),alg=CUDA.CUSOLVER.QRAlgorithm())
-    er3=(norm(x - svdvalref)/norm(svdvalref))
-    a[1:n+1:end].=0
-    a[n+1:n+1:end].=0
-    println( iszero(a))
-    return er1,er2,er3
-end 
-=#
