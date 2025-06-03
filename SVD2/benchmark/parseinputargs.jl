@@ -30,13 +30,13 @@ function parse_commandline(args)
 
    add_arg_group!(s, "Optional arguments")
     @add_arg_table! s begin
-        "--tilesize"
+        "--brdwidth"
             arg_type = Int
             default = 64
         "--bandwidth"
             arg_type = Int
             default = 64
-        "--subtilesize"
+        "--brdmulsize"
             arg_type = Int
             default = 64
         "--maxblocks"
@@ -48,6 +48,12 @@ function parse_commandline(args)
         "--numruns"
             arg_type = Int
             default = 20
+        "--tilesizemul"
+            arg_type = Int
+            default = 64
+        "--qrsplit"
+            arg_type = Int
+            default = 8
     end
 
     output=parse_args(args,s)
@@ -65,9 +71,12 @@ elty=parsed_args["data type"]
 include("vendorspecific/benchmark_"*parsed_args["hardware"]*".jl")
 #include("vendorspecific/benchmark_cuda.jl")
 arty=typeof(KernelAbstractions.zeros(backend,elty,2,2))
-const TILESIZE = parsed_args["tilesize"]
+const BRDWIDTH = parsed_args["brdwidth"]
 const BW= parsed_args["bandwidth"]
-const BRDSUBTILE2 = parsed_args["subtilesize"]
+const BRDMULSIZE = parsed_args["brdmulsize"]
 const MAXBLOCKS = parsed_args["maxblocks"]
 const MINTIME = parsed_args["mintime"]
 const NUMRUMS= parsed_args["numruns"]
+const TILESIZE = BW
+const TILESIZEMUL =  parsed_args["tilesizemul"]
+const QRSPLIT = parsed_args["qrsplit"]
