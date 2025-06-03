@@ -1,29 +1,6 @@
-struct LargeTiledMatrix{T} <: AbstractMatrix{T}
-    parent::Union{Adjoint{<:AbstractMatrix{T}},AbstractMatrix{T}}
-    TileRows::Vector{<:AbstractGPUMatrix{T}}
-    backend::Backend
-    nb_tiles::Int
-    tilesinmem::Int
-    cpucache::Vector{<:Array{T,2}}
-end
 
 
-Base.adjoint(A::LargeTiledMatrix{T}) where T = LargeTiledMatrix{T}(A.parent', A.TileRows, A.backend, A.nb_tiles, A.tilesinmem, A.cpucache)
 
-function LargeTiledMatrix(input::AbstractMatrix{T}, backend::Backend, tilesinmem::Int) where {T}
-    tilesinmem = min(Int((size(input,1))/TILESIZE), tilesinmem)
-    rows=Array{AbstractGPUMatrix{T}}(undef, 0)
-    Row=KernelAbstractions.zeros(backend, T, TILESIZE, tilesinmem*TILESIZE)
-    copyto!(Row,copy(view(input,1:TILESIZE,1:tilesinmem*TILESIZE)))
-    push!(rows, Row)
-    for _ in 1:3
-        Row=KernelAbstractions.zeros(backend, T, TILESIZE, tilesinmem*TILESIZE)
-        push!(rows, Row)
-    end
-    return LargeTiledMatrix(input,rows, backend, Int(size(input,1)/TILESIZE),tilesinmem,
-                         [zeros(T, TILESIZE, tilesinmem*TILESIZE), zeros(T, TILESIZE, (tilesinmem-1)*TILESIZE),  
-                         zeros(T, TILESIZE, TILESIZE), zeros(T,1,1),zeros(T,1,1)])
-end
 
 @inline function resizecache(A::LargeTiledMatrix{T},n::Int) where {T}
     if (size(A.cpucache[1],2)!=n*TILESIZE)

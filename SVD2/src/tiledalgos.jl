@@ -4,9 +4,35 @@
 #include openblas gbbrd from nextLA
 #remove some of the copies by fixing copies between views of GPU and CPU arrays
 #naming conventions
+
+struct LargeTiledMatrix{T} <: AbstractMatrix{T}
+    parent::Union{Adjoint{<:AbstractMatrix{T}},AbstractMatrix{T}}
+    TileRows::Vector{<:AbstractGPUMatrix{T}}
+    backend::Backend
+    nb_tiles::Int
+    tilesinmem::Int
+    cpucache::Vector{<:Array{T,2}}
+end
+function LargeTiledMatrix(input::AbstractMatrix{T}, backend::Backend, tilesinmem::Int) where {T}
+    tilesinmem = min(Int((size(input,1))/TILESIZE), tilesinmem)
+    rows=Array{AbstractGPUMatrix{T}}(undef, 0)
+    Row=KernelAbstractions.zeros(backend, T, TILESIZE, tilesinmem*TILESIZE)
+    copyto!(Row,copy(view(input,1:TILESIZE,1:tilesinmem*TILESIZE)))
+    push!(rows, Row)
+    for _ in 1:3
+        Row=KernelAbstractions.zeros(backend, T, TILESIZE, tilesinmem*TILESIZE)
+        push!(rows, Row)
+    end
+    return LargeTiledMatrix(input,rows, backend, Int(size(input,1)/TILESIZE),tilesinmem,
+                         [zeros(T, TILESIZE, tilesinmem*TILESIZE), zeros(T, TILESIZE, (tilesinmem-1)*TILESIZE),  
+                         zeros(T, TILESIZE, TILESIZE), zeros(T,1,1),zeros(T,1,1)])
+end
+
 const AbstractGPUorCPUMat{T} = Union{AbstractGPUArray{T, 2}, AbstractMatrix{T}, Adjoint{<:AbstractMatrix{T}}, Adjoint{<:AbstractGPUArray{T, 2}}}
 const AbstractGPUorCPUArray{T} = Union{AbstractGPUArray{T}, AbstractArray{T}}
 const AbstractGPUorLargeMatrix{T} = Union{AbstractGPUArray{T, 2}, LargeTiledMatrix{T}}
+
+Base.adjoint(A::LargeTiledMatrix{T}) where T = LargeTiledMatrix{T}(A.parent', A.TileRows, A.backend, A.nb_tiles, A.tilesinmem, A.cpucache)
 
 @inline @inbounds get_tileview(A::AbstractGPUorCPUMat{T}, row::Int , col::Int, TILE_SIZEx::Int=TILESIZE, TILE_SIZEy::Int=TILESIZE ) where T = 
             view(A, (row-1)*TILE_SIZEx.+(1:TILE_SIZEx),
