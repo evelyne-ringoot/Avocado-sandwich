@@ -7,7 +7,6 @@ struct LargeTiledMatrix{T} <: AbstractMatrix{T}
     cpucache::Vector{<:Array{T,2}}
 end
 
-const AbstractGPUorLargeMatrix{T} = Union{AbstractGPUArray{T, 2}, LargeTiledMatrix{T}}
 
 Base.adjoint(A::LargeTiledMatrix{T}) where T = LargeTiledMatrix{T}(A.parent', A.TileRows, A.backend, A.nb_tiles, A.tilesinmem, A.cpucache)
 

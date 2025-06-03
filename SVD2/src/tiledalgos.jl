@@ -6,6 +6,8 @@
 #naming conventions
 const AbstractGPUorCPUMat{T} = Union{AbstractGPUArray{T, 2}, AbstractMatrix{T}, Adjoint{<:AbstractMatrix{T}}, Adjoint{<:AbstractGPUArray{T, 2}}}
 const AbstractGPUorCPUArray{T} = Union{AbstractGPUArray{T}, AbstractArray{T}}
+const AbstractGPUorLargeMatrix{T} = Union{AbstractGPUArray{T, 2}, LargeTiledMatrix{T}}
+
 @inline @inbounds get_tileview(A::AbstractGPUorCPUMat{T}, row::Int , col::Int, TILE_SIZEx::Int=TILESIZE, TILE_SIZEy::Int=TILESIZE ) where T = 
             view(A, (row-1)*TILE_SIZEx.+(1:TILE_SIZEx),
                 (col-1)*TILE_SIZEy.+(1:TILE_SIZEy))
