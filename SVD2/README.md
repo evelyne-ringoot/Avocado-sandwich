@@ -25,5 +25,10 @@ Param 9: Amount of runs per benchmark between sync (optional, default 20)
 
 For the optimized bandreduction only, replace the last line as follows:
 ```
-../../-1.11.5/bin/julia --project=. .\benchmark\benchbrd.jl --single --hardware cuda --tilesize 64 --bandwidth 128 --subtilesize 128 --maxblocks 24
+../../-1.11.5/bin/julia --project=. .\benchmark\benchbrd.jl --single --hardware cuda --brdwidth 64 --bandwidth 128 --brdmulsize 128 --maxblocks 24
+```
+
+Or for SVD with optimized bandreduction:
+```
+../../-1.11.5/bin/julia --project=. .\benchmark\benchbrd_svd.jl --single --hardware cuda --brdwidth 64 --bandwidth 128 --brdmulsize 128 --maxblocks 24 --tilesizemul 64 --qrsplit 8
 ```
