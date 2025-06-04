@@ -32,3 +32,6 @@ Or for SVD with optimized bandreduction:
 ```
 ../../-1.11.5/bin/julia --project=. .\benchmark\benchbrd_svd.jl --single --hardware cuda --brdwidth 64 --bandwidth 128 --brdmulsize 128 --maxblocks 24 --tilesizemul 64 --qrsplit 8
 ```
+
+
+WARNING: Some factors or combinations of factors might not be allowed. If you get an inexact int error, this combination of parameters is not implemented. Please verify accuracy first when testing different parameters. The parameters specified above are verified, other parameters are not.
