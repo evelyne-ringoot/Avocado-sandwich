@@ -34,6 +34,7 @@ end
 print("done accuracy : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 
+#=
 print( "becnhmark KA at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
@@ -75,15 +76,15 @@ print("done packed at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 
 println("BRD packed incl communication");
-println( " size    RRMSE    time (ms)  ");
+println( " size    RRMSE    time (s)  ");
 println(" ------  --------  ----------   ");
 for (i,size_i) in enumerate(sizes)
-    @printf " %4d   %8.02e    %8.02f \n" size_i errors[i] timings[i] 
+    @printf " %4d   %8.02e    %10.04f \n" size_i errors[i] timings[i]/1000 
 end  
 
 
 timings=ones(length(sizes))*1000000000
-
+=#
 print( "becnhmark KA packed (excl communication) at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
@@ -93,10 +94,10 @@ print("done packed at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 
 println("BRD packed excl communication");
-println( " size     time (ms)  ");
-println(" ------  ----------   ");
+println( " size    RRMSE    time (s)  ");
+println(" ------  --------  ----------   ");
 for (i,size_i) in enumerate(sizes)
-    @printf " %4d   %8.02f \n" size_i  timings[i] 
+    @printf " %4d   %8.02e    %10.04f \n" size_i errors[i] timings[i]/1000 
 end  
 
 sizes=[1,2,4,8,16].*8192 
@@ -115,8 +116,8 @@ catch e
 end
 
 println("BRD packed large excl communication");
-println( " size   time (ms)  ");
+println( " size   time (s)  ");
 println(" ------   ----------   ");
 for (i,size_i) in enumerate(sizes)
-    @printf " %4d   %8.02f \n" size_i  timings[i] 
+    @printf " %4d   %10.04f \n" size_i  timings[i]/1000 
 end  
