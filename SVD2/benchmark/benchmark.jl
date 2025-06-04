@@ -30,6 +30,7 @@ const QRSPLIT = length(ARGS)>=7 ? parse(Int,ARGS[7]) :  8
 const BRDSPLIT = length(ARGS)>=7 ? parse(Int,ARGS[7]) : 8
 const MINTIME = length(ARGS)>=9 ? parse(Int,ARGS[9]) : 2000
 const NUMRUMS= length(ARGS)>=10 ? parse(Int,ARGS[10]) : 20
+const BANDOFFSET = 1
 
 BLAS.set_num_threads(Threads.nthreads())
 include("../src/KAfuncs.jl")

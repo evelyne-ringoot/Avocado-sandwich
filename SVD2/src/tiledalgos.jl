@@ -157,18 +157,18 @@ end
 
 function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
 
-    QR1!(A,Tau, k;koffset=Int(LQ),singlerow=false)
-    Qtapply1_par!(A, Tau, k; koffset=Int(LQ), singlerow=false)
-    triu!(get_tileview(A, k+Int(LQ),k))
+    QR1!(A,Tau, k;koffset=(Int(LQ)*BANDOFFSET),singlerow=false)
+    Qtapply1_par!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET), singlerow=false)
+    triu!(get_tileview(A, k+(Int(LQ)*BANDOFFSET),k))
 
         for row in k+1+Int(LQ):(nbtiles)
             #QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
             #Qtapply2_par!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
         end
     if ( k+1+Int(LQ)<=(nbtiles))
-        QR2_fused!(A, Tau, k; koffset=Int(LQ)) 
-        Qtapply2_parfused!(A, Tau, k; koffset=Int(LQ))
-        fill!(get_rowview(A',k, k+1+Int(LQ)),0)
+        QR2_fused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET)) 
+        Qtapply2_parfused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET))
+        fill!(get_rowview(A',k, k+1+(Int(LQ)*BANDOFFSET)),0)
     end
 end
 

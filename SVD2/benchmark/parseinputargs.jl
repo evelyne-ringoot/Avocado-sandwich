@@ -54,6 +54,10 @@ function parse_commandline(args)
         "--qrsplit"
             arg_type = Int
             default = 8
+        "--tilesize"
+            arg_type = Int
+            default = 64
+
     end
 
     output=parse_args(args,s)
@@ -77,6 +81,7 @@ const BRDMULSIZE = parsed_args["brdmulsize"]
 const MAXBLOCKS = parsed_args["maxblocks"]
 const MINTIME = parsed_args["mintime"]
 const NUMRUMS= parsed_args["numruns"]
-const TILESIZE = BW
+const TILESIZE = parsed_args["tilesize"]
+const BANDOFFSET = Int(BRDWIDTH/TILESIZE)
 const TILESIZEMUL =  parsed_args["tilesizemul"]
 const QRSPLIT = parsed_args["qrsplit"]
