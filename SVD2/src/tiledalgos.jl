@@ -129,8 +129,8 @@ function banddiagsvd(A::AbstractGPUMatrix)
     mygbbrd!(A)
     KernelAbstractions.synchronize(get_backend(A))
     n=size(A,1)
-    d=(Float64.(Array(A[1:n+1:end])))
-    e=(Float64.(Array(A[n+1:n+1:end])))
+    d=((Array(A[1:n+1:end])))
+    e=((Array(A[n+1:n+1:end])))
     return LAPACK.bdsdc!('U', 'N', d, e)[1]
 end
 
@@ -146,6 +146,14 @@ function mygesvd!(A::AbstractGPUMatrix)
     return out
 end
 
+
+function myblockdiag!(A::AbstractGPUMatrix)
+    nbtiles=Int(size(A,1)/TILESIZE)
+    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),TILESIZE,nbtiles)
+    myblockdiag!(A,Tau,nbtiles)
+    KernelAbstractions.synchronize(get_backend(A))
+    unsafe_free!(Tau)
+end
 
 function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
 
