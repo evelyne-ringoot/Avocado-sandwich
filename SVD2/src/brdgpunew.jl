@@ -161,9 +161,9 @@ end
                             row= (fullblock ? currrowidx+1 : 1 )
                             col= currcolidx+1
                         if ( row<=nbrows && col<=nbrows)
-                            input[packedrowidx(row,col,packed)...]  =  pivotel-Int(abs(tmpsumiter)>2*floatmin(eltype(input)))*newvalue
+                            input[packedrowidx(row,col,packed)...]  =  pivotel-Int(execiter)*newvalue
                         end
-                    tilecol_cache[1]=newvalue
+                    execiter && (tilecol_cache[1]=newvalue)
                 end
 
                 @synchronize
@@ -190,7 +190,7 @@ end
                     if (((1+bwiter)*BRDWIDTH)>=(BRDMULSIZE*(muliter)+i) && ((fullblock && (i>1|| bwiter>1 ||muliter>0)) || muliter>=SUBTILEFACTOR))
                         tmp_sum = mulvecvec_nosplit(tilecol, tilecol_cache,true)
                         factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,tilecol[1] ,newvalue)
-                        updatevector(tilecol , tilecol_cache, factor,3, execiter)
+                        updatevector(tilecol , tilecol_cache, factor, execiter)
 
                         
                         @unroll for j in 1:BRDWIDTH
@@ -231,27 +231,23 @@ end
 
 
 @inline function calc_factor(u1::T, unorm::T) where {T<:Number}
-    execiter = !(abs(unorm)<2*floatmin(T)) 
+    execiter = !(abs(unorm)<=2floatmin(T)) 
     newvalue = u1 + sign(u1) *sqrt(u1*u1+unorm)
     return newvalue, execiter
 end
 
 @inline function calc_factor2( u1::T, unorm::T, uv::T, v1::T, newvalue::T) where {T<:Number}
     if ( abs(newvalue*newvalue)<2*floatmin(T) )
-        return (v1)/ ( u1)
-    end
+       return (v1)/ ( u1)
+   end
     factor = uv*2/ (unorm + newvalue*newvalue)
-    if ( isinf(factor))
-        factor = uv/(newvalue*newvalue) *2/ (unorm/(newvalue*newvalue) + 1)
-    end
     return factor
 end
 
-@inline function updatevector(vec1, vec2, factor::Number,k::Int,execute::Bool)
+@inline function updatevector(vec1, vec2, factor::Number,execute::Bool)
     if (execute)
-        
         @unroll for j in 1:BRDWIDTH+1
-            vec1[j]-=((k+j==2) ?  zero(eltype(vec1)) : factor* vec2[j])
+            vec1[j]-=  factor* vec2[j]
         end
     end
 end
