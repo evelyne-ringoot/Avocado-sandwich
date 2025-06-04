@@ -15,22 +15,43 @@ b=tril(triu(randn!(KernelAbstractions.zeros(backend,elty,size_i,size_i))),BW)
 print("matrix generated, compiling at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 mygbbrd!(b)
+randn!(b)
 mygesvd!(b)
 print("first compile done at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 
 
-sizes=[128,256,512,1024,2048,4096,8192,16384 ]
+sizes=[128,256,512,1024,2048,4096,8192]#,16384 ]
 timings=ones(length(sizes))*1000000000
-print( "becnhmark KA at : ")
+errors=zeros(length(sizes))
+print( "Checking correctness at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
-    timings[i] = min( benchmark_ms(size_i,mygesvd!), timings[i])
+    input=randn!(KernelAbstractions.zeros(backend,elty,size_i, size_i))
+    aout=(mygesvd!(copy(input)))
+    aref=vendorsvd!(Float64.(copy(input)))
+    KernelAbstractions.synchronize(backend)
+    aref= Array(aref) #Array because mygesvd returns CPU Array
+    errors[i]= norm((aref-aout))/norm(aref)
+
 end
 print("done at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 
-println("SVD");
+
+try
+    print( "becnhmark KA at : ")
+    println(Dates.format(now(), "HH:MM:SS")  )
+    for (i,size_i) in enumerate(sizes)
+        timings[i] = min( benchmark_ms(size_i,mygesvd!), timings[i])
+    end
+    print("done at : ")
+    println(Dates.format(now(), "HH:MM:SS")  )
+catch e
+    println("did not finish all sizes")
+end
+
+println("SVD")
 println( " size    RRMSE    time (ms)  ");
 println(" ------  --------  ----------   ");
 for (i,size_i) in enumerate(sizes)
