@@ -1,7 +1,6 @@
 
 using KernelAbstractions.Extras: @unroll
 const BRDSPLITFACTOR = Int(TILESIZE/BRDSPLIT)
-const BRDSUBTILE = Int(TILESIZE/BRDTILESPERTILE)
 
 function brd1!(A::AnyGPUMatrix{T}, noblocks) where T 
     brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
@@ -11,14 +10,7 @@ function brd2!(A::AnyGPUMatrix{T}, noblocks) where T
     brdkernel_lowmem!(backend, (BRDSPLIT, TILESIZE))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE))
     brdkernel_lowmem!(backend, (BRDSPLIT, TILESIZE))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE))
 end
-function brd3!(A::AnyGPUMatrix{T}, noblocks) where T 
-    brdkernel_large!(backend, (BRDSPLIT, BRDSUBTILE))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,BRDSUBTILE))
-    brdkernel_large!(backend, (BRDSPLIT, BRDSUBTILE))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,BRDSUBTILE))
-end
-function brd3!(A::PackedBandGPUMatrix{T}, noblocks) where T 
-    brdkernel_large!(backend, (BRDSPLIT, BRDSUBTILE))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,BRDSUBTILE))
-    brdkernel_large!(backend, (BRDSPLIT, BRDSUBTILE))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,BRDSUBTILE))
-end
+
 
 function mygbbrd!(A::AnyGPUMatrix{T}) where T 
     n=size(A,1)
@@ -187,7 +179,7 @@ end
 
     sendblockbacktomem(input, view(cache,krange,i), k, i, rowidx+TILESIZE*2, colidx+2*TILESIZE, nbrows)
 end
-
+#=
 @kernel cpu=false inbounds=true unsafe_indices=false function brdkernel_large!(input, nbrows, secondsweep; packed::Bool=false)
     k,i = @index(Local, NTuple)
     g = @index(Group, Linear)
@@ -276,7 +268,7 @@ end
 
     
 end
-
+=#
 @inline function loadonlyfirstrow(cache, input, k,i,colidx,nbrows)
     @unroll for j in 1:BRDSPLITFACTOR
         cache[j] = (i==1 && colidx+(k-1)*BRDSPLITFACTOR+j <=nbrows) ? input[1,colidx+(k-1)*BRDSPLITFACTOR+j] :  zero(eltype(input))
