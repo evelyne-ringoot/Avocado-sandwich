@@ -118,8 +118,7 @@ function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T},
 
     for k in 1:(nbtiles-kend)
         QRandmult!(A,Tau,k, nbtiles)
-        (k==nbtiles) && break
-        QRandmult!(A',Tau,k, nbtiles, LQ=true)
+        (k+BANDOFFSET<=nbtiles) && QRandmult!(A',Tau,k, nbtiles, LQ=true)
     end
     return A
 end
