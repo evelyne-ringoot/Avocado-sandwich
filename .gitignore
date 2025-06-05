@@ -7,3 +7,7 @@
 **/*.png
 .vscode
 KAbasedSVD/mscthesis_figures/
+*/Project.toml
+*/Manifest.toml
+reduction_tests/build/*
+SVD2/curocsolver/build/
