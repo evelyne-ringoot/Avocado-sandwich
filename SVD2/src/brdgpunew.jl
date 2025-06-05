@@ -156,6 +156,8 @@ end
                 
                 tmpsumiter = mulvecvec_nosplit(tilecol_cache, tilecol_cache,false)
                 pivotel=tilecol_cache[1]
+                @synchronize
+                
                 newvalue, execiter = calc_factor(pivotel, tmpsumiter )
                 if (i==1)
                             row= (fullblock ? currrowidx+1 : 1 )
@@ -185,9 +187,6 @@ end
                         tilecol[BRDWIDTH+1] = (bwiter>1 && currrowidx+idx_x<=nbrows && currcolidx+idx_y<=nbrows ) ?
                             input[ packedrowidx(currrowidx+idx_x,currcolidx+idx_y,packed)...] : zero(eltype(input))
 
-                    end
-                    @synchronize
-                    if (((1+bwiter)*BRDWIDTH)>=(BRDMULSIZE*(muliter)+i) && ((fullblock && (i>1|| bwiter>1 ||muliter>0)) || muliter>=SUBTILEFACTOR))
                         tmp_sum = mulvecvec_nosplit(tilecol, tilecol_cache,true)
                         factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,tilecol[1] ,newvalue)
                         updatevector(tilecol , tilecol_cache, factor, execiter)
@@ -207,7 +206,6 @@ end
                         end
                         
                     end
-                    @synchronize
                 
                 end
             
