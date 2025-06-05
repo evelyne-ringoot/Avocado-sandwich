@@ -188,7 +188,8 @@ end
                             input[ packedrowidx(currrowidx+idx_x,currcolidx+idx_y,packed)...] : zero(eltype(input))
 
                         tmp_sum = mulvecvec_nosplit(tilecol, tilecol_cache,true)
-                        factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,tilecol[1] ,newvalue)
+                        newvalue=tilecol[1]
+                        factor = calc_factor2(pivotel, tmpsumiter, tmp_sum, newvalue,newvalue)
                         updatevector(tilecol , tilecol_cache, factor, execiter)
 
                         

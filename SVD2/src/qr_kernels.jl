@@ -47,7 +47,10 @@ end
                     tmp_sum+=cache[j]*tilecol[j]
                 end
             end
-            newvalue, taucurrent, tmp_sum2 = calc_tau_factor(cache[iter], sharedvalue[1], tmp_sum , tilecol[iter])
+            cacheiter=cache[iter]
+            sharedvaluelocal=sharedvalue[1]
+            tilecoliter=tilecol[iter]
+            newvalue, taucurrent, tmp_sum2 = calc_tau_factor(cacheiter,sharedvaluelocal , tmp_sum , tilecoliter)
             
             
             if (i==iter)
@@ -116,7 +119,8 @@ end
                 tmpsumiter+= cache2[j,iter]
                 tmp_sum += cache2[j,i]
             end
-            newvalue, taucurrent, tmp_sum2 = calc_tau_factor(sharedvalue[2], tmpsumiter, tmp_sum , tileiter)
+            sharedvaluelocal=sharedvalue[2]
+            newvalue, taucurrent, tmp_sum2 = calc_tau_factor(sharedvaluelocal, tmpsumiter, tmp_sum , tileiter)
             tau_iter = i==iter ? taucurrent : tau_iter
 
             if (i>iter)
@@ -195,8 +199,9 @@ end
                     tmpsumiter+= cache2[j,iter]
                     tmp_sum += cache2[j,i]
                 end
-
-                newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first[iter,iter], tmpsumiter, tmp_sum , tilecol_first[i,iter])
+                tilecoliter=tilecol_first[iter,iter]
+                tilecoli_iter=tilecol_first[i,iter]
+                newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecoliter, tmpsumiter, tmp_sum ,tilecoli_iter )
                 if (k==1)
                     tau_iter[iter]=taucurrent
                 end
