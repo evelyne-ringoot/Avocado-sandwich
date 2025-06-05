@@ -82,6 +82,6 @@ const MAXBLOCKS = parsed_args["maxblocks"]
 const MINTIME = parsed_args["mintime"]
 const NUMRUMS= parsed_args["numruns"]
 const TILESIZE = parsed_args["tilesize"]
-const BANDOFFSET = Int(BRDWIDTH/TILESIZE)
+const BANDOFFSET = Int(BW/TILESIZE)
 const TILESIZEMUL =  parsed_args["tilesizemul"]
 const QRSPLIT = parsed_args["qrsplit"]
