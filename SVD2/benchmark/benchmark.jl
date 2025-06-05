@@ -30,8 +30,14 @@ const QRSPLIT = length(ARGS)>=7 ? parse(Int,ARGS[7]) :  8
 const BRDSPLIT = length(ARGS)>=7 ? parse(Int,ARGS[7]) : 8
 const MINTIME = length(ARGS)>=9 ? parse(Int,ARGS[9]) : 2000
 const NUMRUMS= length(ARGS)>=10 ? parse(Int,ARGS[10]) : 20
+const BANDOFFSET = 1
 
-include("includesrc.jl")
+BLAS.set_num_threads(Threads.nthreads())
+include("../src/KAfuncs.jl")
+include("../src/qr_kernels.jl")
+include("../src/brdgpu.jl")
+include("../src/tiledalgos.jl")
+include("../src/datacomms.jl")
 include("benchfuncs.jl")
 brd! = (length(ARGS)>=8 && ARGS[8]=="Y") ? brd2! : brd1!
 

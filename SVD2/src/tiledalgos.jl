@@ -4,8 +4,36 @@
 #include openblas gbbrd from nextLA
 #remove some of the copies by fixing copies between views of GPU and CPU arrays
 #naming conventions
+
+struct LargeTiledMatrix{T} <: AbstractMatrix{T}
+    parent::Union{Adjoint{<:AbstractMatrix{T}},AbstractMatrix{T}}
+    TileRows::Vector{<:AbstractGPUMatrix{T}}
+    backend::Backend
+    nb_tiles::Int
+    tilesinmem::Int
+    cpucache::Vector{<:Array{T,2}}
+end
+function LargeTiledMatrix(input::AbstractMatrix{T}, backend::Backend, tilesinmem::Int) where {T}
+    tilesinmem = min(Int((size(input,1))/TILESIZE), tilesinmem)
+    rows=Array{AbstractGPUMatrix{T}}(undef, 0)
+    Row=KernelAbstractions.zeros(backend, T, TILESIZE, tilesinmem*TILESIZE)
+    copyto!(Row,copy(view(input,1:TILESIZE,1:tilesinmem*TILESIZE)))
+    push!(rows, Row)
+    for _ in 1:3
+        Row=KernelAbstractions.zeros(backend, T, TILESIZE, tilesinmem*TILESIZE)
+        push!(rows, Row)
+    end
+    return LargeTiledMatrix(input,rows, backend, Int(size(input,1)/TILESIZE),tilesinmem,
+                         [zeros(T, TILESIZE, tilesinmem*TILESIZE), zeros(T, TILESIZE, (tilesinmem-1)*TILESIZE),  
+                         zeros(T, TILESIZE, TILESIZE), zeros(T,1,1),zeros(T,1,1)])
+end
+
 const AbstractGPUorCPUMat{T} = Union{AbstractGPUArray{T, 2}, AbstractMatrix{T}, Adjoint{<:AbstractMatrix{T}}, Adjoint{<:AbstractGPUArray{T, 2}}}
 const AbstractGPUorCPUArray{T} = Union{AbstractGPUArray{T}, AbstractArray{T}}
+const AbstractGPUorLargeMatrix{T} = Union{AbstractGPUArray{T, 2}, LargeTiledMatrix{T}}
+
+Base.adjoint(A::LargeTiledMatrix{T}) where T = LargeTiledMatrix{T}(A.parent', A.TileRows, A.backend, A.nb_tiles, A.tilesinmem, A.cpucache)
+
 @inline @inbounds get_tileview(A::AbstractGPUorCPUMat{T}, row::Int , col::Int, TILE_SIZEx::Int=TILESIZE, TILE_SIZEy::Int=TILESIZE ) where T = 
             view(A, (row-1)*TILE_SIZEx.+(1:TILE_SIZEx),
                 (col-1)*TILE_SIZEy.+(1:TILE_SIZEy))
@@ -44,20 +72,7 @@ QR2_fused!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int; koffset::Int=0
                                      get_rowview(A', k, k+koffset+1)', get_rowview(Tau, 1,k+koffset+1,  TILESIZE,1),
                                      Int((size(A,2)-(k+koffset)*TILESIZE)/TILESIZE),  ndrange=(QRSPLIT,TILESIZE))
 
-function brd1!(A::AnyGPUMatrix{T}, noblocks) where T 
-    brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
-    brdkernel!(backend, (BRDSPLIT, TILESIZE,2))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE,2))
-end
-function brd2!(A::AnyGPUMatrix{T}, noblocks) where T 
-    brdkernel_lowmem!(backend, (BRDSPLIT, TILESIZE))(A,size(A,1), false, ndrange=(BRDSPLIT*noblocks,TILESIZE))
-    brdkernel_lowmem!(backend, (BRDSPLIT, TILESIZE))(A,size(A,1), true, ndrange=(BRDSPLIT*noblocks,TILESIZE))
-end
-function mygbbrd!(A::AnyGPUMatrix{T}) where T 
-    n=size(A,1)
-    for k in 1:(n-1)
-        brd!(view(A,k:n,k:n),min(k,1+cld((n-k), (4TILESIZE-1))))
-    end
-end               
+            
 
 function OOC_alg!(A::Matrix{T}, f::Function, kswitch::Int,tilesinmem::Int) where {T}
     n=size(A,1)
@@ -103,23 +118,18 @@ function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T},
 
     for k in 1:(nbtiles-kend)
         QRandmult!(A,Tau,k, nbtiles)
-        (k==nbtiles) && break
-        QRandmult!(A',Tau,k, nbtiles, LQ=true)
+        (k+BANDOFFSET<=nbtiles) && QRandmult!(A',Tau,k, nbtiles, LQ=true)
     end
     return A
 end
 
-#=function banddiagsvd(A::AbstractMatrix)
-    d,e = gbbrd!(gbbrd_copy(A,TILESIZE), TILESIZE)
-    return LAPACK.bdsdc!('U', 'N', d, e)[1]
-end=#
 
 function banddiagsvd(A::AbstractGPUMatrix)
     mygbbrd!(A)
     KernelAbstractions.synchronize(get_backend(A))
     n=size(A,1)
-    d=(Array(A[1:n+1:end]))
-    e=(Array(A[n+1:n+1:end]))
+    d=((Array(A[1:n+1:end])))
+    e=((Array(A[n+1:n+1:end])))
     return LAPACK.bdsdc!('U', 'N', d, e)[1]
 end
 
@@ -130,25 +140,34 @@ function mygesvd!(A::AbstractGPUMatrix)
     Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),TILESIZE,nbtiles)
     myblockdiag!(A,Tau,nbtiles)
     KernelAbstractions.synchronize(get_backend(A))
+    out=banddiagsvd(A)
     unsafe_free!(Tau)
-    return banddiagsvd(A)
+    return out
 end
 
 
+function myblockdiag!(A::AbstractGPUMatrix)
+    nbtiles=Int(size(A,1)/TILESIZE)
+    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),TILESIZE,nbtiles)
+    myblockdiag!(A,Tau,nbtiles)
+    KernelAbstractions.synchronize(get_backend(A))
+    unsafe_free!(Tau)
+end
+
 function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
 
-    QR1!(A,Tau, k;koffset=Int(LQ),singlerow=false)
-    Qtapply1_par!(A, Tau, k; koffset=Int(LQ), singlerow=false)
-    triu!(get_tileview(A, k+Int(LQ),k))
+    QR1!(A,Tau, k;koffset=(Int(LQ)*BANDOFFSET),singlerow=false)
+    Qtapply1_par!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET), singlerow=false)
+    triu!(get_tileview(A, k+(Int(LQ)*BANDOFFSET),k))
 
         for row in k+1+Int(LQ):(nbtiles)
             #QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
             #Qtapply2_par!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
         end
     if ( k+1+Int(LQ)<=(nbtiles))
-        QR2_fused!(A, Tau, k; koffset=Int(LQ)) 
-        Qtapply2_parfused!(A, Tau, k; koffset=Int(LQ))
-        fill!(get_rowview(A',k, k+1+Int(LQ)),0)
+        QR2_fused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET)) 
+        Qtapply2_parfused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET))
+        fill!(get_rowview(A',k, k+1+(Int(LQ)*BANDOFFSET)),0)
     end
 end
 

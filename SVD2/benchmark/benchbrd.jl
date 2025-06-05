@@ -1,63 +1,59 @@
-using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf
+using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dates, DelimitedFiles
 
-if (ARGS[2]=="H")
-    elty=Float16
-elseif (ARGS[2]=="S")
-    elty=Float32
-elseif (ARGS[2]=="D")
-    elty=Float64
-else
-    error("specify correct params")
-end
-
-if (ARGS[1]=="AMD")
-    include("vendorspecific/benchmark_amd.jl")
-elseif (ARGS[1]=="CUDA")
-    include("vendorspecific/benchmark_cuda.jl")
-elseif (ARGS[1]=="ONE")
-    include("vendorspecific/benchmark_oneapi.jl")
-elseif (ARGS[1]=="METAL")
-    include("vendorspecific/benchmark_metal.jl")
-else
-    error("specify correct params")
-end
-
-arty=typeof(KernelAbstractions.zeros(backend,elty,2,2))
-
-const TILESIZE = length(ARGS)>=3 ? parse(Int,ARGS[3]) : 64
-const BRDSPLIT = 64 #  length(ARGS)>=4 ? parse(Int,ARGS[4]) : 8
-const BRDTILESPERTILE = length(ARGS)>=5 ? parse(Int,ARGS[5]) : 1
-const BRDSUBTILE2 = length(ARGS)>=5 ? parse(Int,ARGS[5]) : 128 # required larger than TILESIZE
-const MINTIME = length(ARGS)>=6 ? parse(Int,ARGS[6]) : 2000
-const NUMRUMS= length(ARGS)>=7 ? parse(Int,ARGS[7]) : 20
-
-include("../src/brdgpu.jl")
+include("parseinputargs.jl")
+include("../src/brdgpunew.jl")
 include("benchfuncs.jl")
 
-sizes=[ 512, 1024, 2048, 4096,8192]#,, 16384 32768, 65536] #
+print("starting code : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+size_i=4BW
+b=tril(triu(randn!(KernelAbstractions.zeros(backend,elty,size_i,size_i))),BW)
+print("matrix generated, compiling at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+mygbbrd!(b)
+mygbbrd_packed!(b)
+mygbbrd_packed_nocomm!(b)
+print("first compile done at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+
+#  bw, maxblocks, brdwidth,brdmul,size,error,timing, type
+output=(zeros(Int,12,8))
+output[:,1].=BW
+output[:,2].=MAXBLOCKS
+output[:,3].=BRDWIDTH
+output[:,4].=BRDMULSIZE
+output[:,8].= (elty==Float32 ? 2 : (elty==Float64 ? 3 : 1) )
+output[:,5].= (2 .^(7:18))
+
+
+
+
+
+sizes=[128,256,512,1024,2048,4096 ]
 timings=ones(length(sizes))*1000000000
 errors=zeros(length(sizes))
-println( "Checking correctness")
+
+print( "Checking correctness at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
-    a=tril(triu(randn!(KernelAbstractions.zeros(backend,elty,size_i,size_i))),TILESIZE)
-    aref=svdvals(a, alg=CUDA.CUSOLVER.QRAlgorithm())
-    mygbbrd3!(a)
+    a=tril(triu(randn!(KernelAbstractions.zeros(backend,elty,size_i,size_i))),BW)
+    aref=svdvals(Float64.(a), alg=CUDA.CUSOLVER.QRAlgorithm())
+    mygbbrd!(a)
     KernelAbstractions.synchronize(backend)
-    aout=svdvals(a, alg=CUDA.CUSOLVER.QRAlgorithm())
+    aout=svdvals(Float64.(a), alg=CUDA.CUSOLVER.QRAlgorithm())
     errors[i]=norm(aref-aout)/norm(aout)
 end
-
-
-
-println( "warump KA only");
+print("done accuracy : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+output[1:6,6].=round.(Int,errors./eps(elty).*1000)
+#=
+print( "becnhmark KA at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
-    #timings[i] = min( benchmark_ms(size_i,mygbbrd3!), timings[i])
+    timings[i] = min( benchmark_ms(size_i,mygbbrd!), timings[i])
 end
-
-println( "run KA only");
-for (i,size_i) in enumerate(sizes)
-    timings[i] = min( benchmark_ms_large(size_i,mygbbrd3!), timings[i])
-end
+print("done at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
 
 println("BRD");
 println( " size    RRMSE    time (ms)  ");
@@ -65,4 +61,82 @@ println(" ------  --------  ----------   ");
 for (i,size_i) in enumerate(sizes)
     @printf " %4d   %8.02e    %8.02f \n" size_i errors[i] timings[i] 
 end  
+
+
+timings=ones(length(sizes))*1000000000
+errors=zeros(length(sizes))
+
+print( "Checking correctness packed at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+for (i,size_i) in enumerate(sizes)
+    a=tril(triu(randn!(KernelAbstractions.zeros(backend,elty,size_i,size_i))),BW)
+    aref=svdvals(Float64.(a), alg=CUDA.CUSOLVER.QRAlgorithm())
+    mygbbrd_packed!(a)
+    KernelAbstractions.synchronize(backend)
+    aout=svdvals(Float64.(a), alg=CUDA.CUSOLVER.QRAlgorithm())
+    errors[i]=norm(aref-aout)/norm(aout)
+end
+print("done accuracy packed : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+
+print( "becnhmark KA packed (incl communication)  at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+for (i,size_i) in enumerate(sizes)
+    timings[i] = min( benchmark_ms(size_i,mygbbrd_packed!), timings[i])
+end
+print("done packed at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+
+println("BRD packed incl communication");
+println( " size    RRMSE    time (s)  ");
+println(" ------  --------  ----------   ");
+for (i,size_i) in enumerate(sizes)
+    @printf " %4d   %8.02e    %10.04f \n" size_i errors[i] timings[i]/1000 
+end  
+
+
+timings=ones(length(sizes))*1000000000
+=#
+print( "becnhmark KA packed (excl communication) at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+for (i,size_i) in enumerate(sizes)
+    timings[i] = min( benchmark_ms(size_i,mygbbrd_packed_nocomm!, 3BW+1), timings[i])
+end
+print("done packed at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+
+println("BRD packed excl communication");
+println( " size    RRMSE    time (s)  ");
+println(" ------  --------  ----------   ");
+for (i,size_i) in enumerate(sizes)
+    @printf " %4d   %8.02e    %10.04f \n" size_i errors[i] timings[i]/1000 
+end  
+output[1:6,7].=round.(Int,timings).*10
+sizes=[1,2,4,8,16,32].*8192 
+timings=ones(length(sizes))*1000000000
+
+
+print( "becnhmarking large sizes (excl communication) at : ")
+println(Dates.format(now(), "HH:MM:SS")  )
+try 
+    for (i,size_i) in enumerate(sizes)
+        timings[i] = min( benchmark_ms_large(size_i,mygbbrd_packed_nocomm!, 3BW+1), timings[i])
+    end
+    print("done packed at : ")
+    println(Dates.format(now(), "HH:MM:SS")  )
+catch e 
+    println("!!! did not finish all sizes")
+finally
+    output[7:12,7].=round.(Int,timings).*10
+    writedlm( "BRDresults"*string(elty)*"_"* string(BW)* "_"* string(MAXBLOCKS)* "_"* string(BRDWIDTH)* "_"* string(BRDMULSIZE)* "_" *".csv",  output, ',')
+    println("BRD packed large excl communication");
+    println( " size   time (s)  ");
+    println(" ------   ----------   ");
+    for (i,size_i) in enumerate(sizes)
+        @printf " %4d   %10.04f \n" size_i  timings[i]/1000 
+    end  
+
+end
+
+
 
