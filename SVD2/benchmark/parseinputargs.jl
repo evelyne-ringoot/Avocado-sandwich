@@ -56,7 +56,7 @@ function parse_commandline(args)
             default = 8
         "--tilesize"
             arg_type = Int
-            default = 64
+            default = 32
 
     end
 
