@@ -1,4 +1,4 @@
-using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dates
+using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dates, DelimitedFiles
 
 include("parseinputargs.jl")
 include("../src/brdgpunew.jl")
@@ -16,8 +16,20 @@ mygbbrd_packed_nocomm!(b)
 print("first compile done at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 
+#  bw, maxblocks, brdwidth,brdmul,size,error,timing, type
+output=(zeros(Int,12,8))
+output[:,1].=BW
+output[:,2].=MAXBLOCKS
+output[:,3].=BRDWIDTH
+output[:,4].=BRDMULSIZE
+output[:,8].= (elty==Float32 ? 2 : (elty==Float64 ? 3 : 1) )
+output[:,5].= (2 .^(7:18))
 
-sizes=[128,256,512,1024,2048,4096,8192 ]
+
+
+
+
+sizes=[128,256,512,1024,2048,4096 ]
 timings=ones(length(sizes))*1000000000
 errors=zeros(length(sizes))
 
@@ -33,7 +45,7 @@ for (i,size_i) in enumerate(sizes)
 end
 print("done accuracy : ")
 println(Dates.format(now(), "HH:MM:SS")  )
-
+output[1:6,6].=round.(Int,errors./eps(elty).*1000)
 #=
 print( "becnhmark KA at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
@@ -99,9 +111,10 @@ println(" ------  --------  ----------   ");
 for (i,size_i) in enumerate(sizes)
     @printf " %4d   %8.02e    %10.04f \n" size_i errors[i] timings[i]/1000 
 end  
-
-sizes=[1,2,4,8,16].*8192 
+output[1:6,7].=round.(Int,timings).*10
+sizes=[1,2,4,8,16,32].*8192 
 timings=ones(length(sizes))*1000000000
+
 
 print( "becnhmarking large sizes (excl communication) at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
@@ -113,11 +126,17 @@ try
     println(Dates.format(now(), "HH:MM:SS")  )
 catch e 
     println("!!! did not finish all sizes")
+finally
+    output[7:12,7].=round.(Int,timings).*10
+    writedlm( "BRDresults"*string(elty)*"_"* string(BW)* "_"* string(MAXBLOCKS)* "_"* string(BRDWIDTH)* "_"* string(BRDMULSIZE)* "_" *".csv",  output, ',')
+    println("BRD packed large excl communication");
+    println( " size   time (s)  ");
+    println(" ------   ----------   ");
+    for (i,size_i) in enumerate(sizes)
+        @printf " %4d   %10.04f \n" size_i  timings[i]/1000 
+    end  
+
 end
 
-println("BRD packed large excl communication");
-println( " size   time (s)  ");
-println(" ------   ----------   ");
-for (i,size_i) in enumerate(sizes)
-    @printf " %4d   %10.04f \n" size_i  timings[i]/1000 
-end  
+
+
