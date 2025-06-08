@@ -42,6 +42,9 @@ for (i,size_i) in enumerate(sizes)
     KernelAbstractions.synchronize(backend)
     aout=vendorsvd!(Float64.(copy(a)))
     errors[i]=norm(aref-aout)/norm(aout)
+    if (isnan(errors[i]))
+       errors[i]=10^9*eps(elty)
+    end
 end
 print("done accuracy : ")
 println(Dates.format(now(), "HH:MM:SS")  )
@@ -121,6 +124,10 @@ println(Dates.format(now(), "HH:MM:SS")  )
 try 
     for (i,size_i) in enumerate(sizes)
         timings[i] = min( benchmark_ms_large(size_i,mygbbrd_packed_nocomm!, 3BW+1), timings[i])
+        if (i>3) 
+            output[7:12,7].=round.(Int,timings).*10
+            writedlm( "BRDresults"*string(elty)*"_"* string(BW)* "_"* string(MAXBLOCKS)* "_"* string(BRDWIDTH)* "_"* string(BRDMULSIZE)* "_" *".csv",  output, ',')
+         end
     end
     print("done packed at : ")
     println(Dates.format(now(), "HH:MM:SS")  )
