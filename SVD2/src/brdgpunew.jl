@@ -170,7 +170,7 @@ end
 
                 @synchronize
 
-                for muliter in 0:7
+                for muliter in 0:15
                     if (((1+bwiter)*BRDWIDTH)>=(BRDMULSIZE*(muliter)+i) && ((fullblock && (i>1|| bwiter>1 ||muliter>0)) || muliter>=SUBTILEFACTOR))
                         
                         currrowidx=rowidx+BRDWIDTH*bwiter*dolq+(1-dolq)*(BRDMULSIZE*muliter+Int(bwiter>1))
