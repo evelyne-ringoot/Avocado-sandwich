@@ -167,7 +167,7 @@ function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtil
     if ( k+1+Int(LQ)<=(nbtiles))
         QR2_fused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET)) 
         Qtapply2_parfused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET))
-        fill!(get_rowview(A',k, k+1+(Int(LQ)*BANDOFFSET)),0)
+        get_rowview(A',k, k+1+(Int(LQ)*BANDOFFSET)).=zero(T)
     end
 end
 
