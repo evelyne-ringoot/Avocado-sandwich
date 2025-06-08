@@ -41,7 +41,7 @@ for (i,size_i) in enumerate(sizes)
     mygbbrd!(a)
     KernelAbstractions.synchronize(backend)
     aout=vendorsvd!(Float64.(copy(a)))
-    errors[i]=norm(aref-aout)/norm(aout)
+    errors[i]=(sqrt(sum((aref-aout).^2)))/ (sqrt(sum((aout).^2)))
 end
 print("done accuracy : ")
 println(Dates.format(now(), "HH:MM:SS")  )
