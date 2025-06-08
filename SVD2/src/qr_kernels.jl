@@ -144,97 +144,202 @@ end
 
 end
 
-@kernel cpu=false  inbounds=true unsafe_indices=false function QR_unsafe_kernel2_fused!(input, input2, tau, nbtiles)
-    k,i = @index(Local, NTuple)
+if (TILESIZE<=64) 
 
-    tilecol = @private eltype(input) (FACTORQR)
-    cache = @localmem eltype(input) (TILESIZE)
-    cache2 = @localmem eltype(input) (QRSPLIT,TILESIZE)
-    tau_iter = @localmem eltype(input) (TILESIZE)
-    tilecol_first = @localmem eltype(input) (TILESIZE,TILESIZE)
-    
-    @unroll for j in 1:FACTORQR
-        tilecol_first[i,j+(k-1)*FACTORQR] = input[j+(k-1)*FACTORQR, i]
-    end
-    currstartrow=0
+    @kernel cpu=false  inbounds=true unsafe_indices=false function QR_unsafe_kernel2_fused!(input, input2, tau, nbtiles)
+        k,i = @index(Local, NTuple)
 
-    for currtile in 1:nbtiles
-
+        tilecol = @private eltype(input) (FACTORQR)
+        cache = @localmem eltype(input) (TILESIZE)
+        cache2 = @localmem eltype(input) (QRSPLIT,TILESIZE)
+        tau_iter = @localmem eltype(input) (TILESIZE)
+        tilecol_first = @localmem eltype(input) (TILESIZE,TILESIZE)
+        
         @unroll for j in 1:FACTORQR
-            tilecol[j] = input2[currstartrow+j+(k-1)*FACTORQR, i]
+            tilecol_first[i,j+(k-1)*FACTORQR] = input[j+(k-1)*FACTORQR, i]
         end
+        currstartrow=0
 
-        @unroll for iter in 1:TILESIZE
-            
-            if (i==iter)
-                @unroll for j in 1:FACTORQR
-                    cache[j+(k-1)*FACTORQR] = tilecol[j]
-                end
+        for currtile in 1:nbtiles
+
+            @unroll for j in 1:FACTORQR
+                tilecol[j] = input2[currstartrow+j+(k-1)*FACTORQR, i]
             end
-            @synchronize
-            
-            if (i>=iter)
-                tmp_sum = zero(eltype(input))
-                @unroll for j in 1:FACTORQR
-                    tmp_sum+=tilecol[j]*cache[j+(k-1)*FACTORQR]
-                end
-                cache2[k,i]=tmp_sum
+
+            @unroll for iter in 1:TILESIZE
                 
-            end
-            
-            @synchronize
-
-            if (i>=iter)
-                tmpsumiter = zero(eltype(input))
-                tmp_sum = zero(eltype(input))
-                @unroll for j = 1:QRSPLIT
-                    tmpsumiter+= cache2[j,iter]
-                    tmp_sum += cache2[j,i]
-                end
-
-                newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first[iter,iter], tmpsumiter, tmp_sum , tilecol_first[i,iter])
-                if (k==1)
-                    tau_iter[iter]=taucurrent
-                end
-                
-
-                if (i>iter)
+                if (i==iter)
                     @unroll for j in 1:FACTORQR
-                        tilecol[j]*=newvalue
-                        tilecol[j]-=cache[j+(k-1)*FACTORQR]*tmp_sum2
+                        cache[j+(k-1)*FACTORQR] = tilecol[j]
                     end
                 end
+                @synchronize
                 
-                @unroll for j in 1:FACTORQR
-                    tilecol[j]/=newvalue
-                end
-            end
-            @synchronize
-            if (i>=iter)
-                if (k==1)
-                    tilecol_first[i,iter]-=tmp_sum2
+                if (i>=iter)
+                    tmp_sum = zero(eltype(input))
+                    @unroll for j in 1:FACTORQR
+                        tmp_sum+=tilecol[j]*cache[j+(k-1)*FACTORQR]
+                    end
+                    cache2[k,i]=tmp_sum
+                    
                 end
                 
+                @synchronize
+
+                if (i>=iter)
+                    tmpsumiter = zero(eltype(input))
+                    tmp_sum = zero(eltype(input))
+                    @unroll for j = 1:QRSPLIT
+                        tmpsumiter+= cache2[j,iter]
+                        tmp_sum += cache2[j,i]
+                    end
+
+                    newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first[iter,iter], tmpsumiter, tmp_sum , tilecol_first[i,iter])
+                    if (k==1)
+                        tau_iter[iter]=taucurrent
+                    end
+                    
+
+                    if (i>iter)
+                        @unroll for j in 1:FACTORQR
+                            tilecol[j]*=newvalue
+                            tilecol[j]-=cache[j+(k-1)*FACTORQR]*tmp_sum2
+                        end
+                    end
+                    
+                    @unroll for j in 1:FACTORQR
+                        tilecol[j]/=newvalue
+                    end
+                end
+                @synchronize
+                if (i>=iter)
+                    if (k==1)
+                        tilecol_first[i,iter]-=tmp_sum2
+                    end
+                    
+                end
+                @synchronize
             end
-            @synchronize
+            
+
+            @unroll for j in 1:FACTORQR
+                input2[currstartrow+j+(k-1)*FACTORQR, i]=tilecol[j] 
+            end
+            if (k+(i-1)*QRSPLIT<=TILESIZE)
+                tau[k+(i-1)*QRSPLIT,currtile]=tau_iter[k+(i-1)*QRSPLIT]
+            end
+            currstartrow+=TILESIZE
         end
-        
 
         @unroll for j in 1:FACTORQR
-            input2[currstartrow+j+(k-1)*FACTORQR, i]=tilecol[j] 
+            input[j+(k-1)*FACTORQR, i]=tilecol_first[i,j+(k-1)*FACTORQR]
         end
-        if (k+(i-1)*QRSPLIT<=TILESIZE)
-            tau[k+(i-1)*QRSPLIT,currtile]=tau_iter[k+(i-1)*QRSPLIT]
+
+    end
+else
+
+
+
+    @kernel cpu=false  inbounds=true unsafe_indices=false function QR_unsafe_kernel2_fused!(input, input2, tau, nbtiles)
+        k,i = @index(Local, NTuple)
+
+        tilecol = @private eltype(input) (FACTORQR)
+        cache = @localmem eltype(input) (TILESIZE)
+        cache2 = @localmem eltype(input) (QRSPLIT,TILESIZE)
+        tilecol_first_cache = @localmem eltype(input) (TILESIZE)
+        tau_iter = @localmem eltype(input) (TILESIZE)
+        tilecol_first = @private eltype(input) (FACTORQR)
+        
+        @unroll for j in 1:FACTORQR
+            tilecol_first[j] = input[j+(k-1)*FACTORQR, i]
         end
-        currstartrow+=TILESIZE
-    end
+        currstartrow=0
 
-    @unroll for j in 1:FACTORQR
-        input[j+(k-1)*FACTORQR, i]=tilecol_first[i,j+(k-1)*FACTORQR]
-    end
+        for currtile in 1:nbtiles
 
+            @unroll for j in 1:FACTORQR
+                tilecol[j] = input2[currstartrow+j+(k-1)*FACTORQR, i]
+            end
+
+            @unroll for iter in 1:TILESIZE
+                
+                if (i==iter)
+                    @unroll for j in 1:FACTORQR
+                        cache[j+(k-1)*FACTORQR] = tilecol[j]
+                    end
+                end
+                if (k==cld(iter,FACTORQR) && i>=iter)
+                    tilecol_first_cache[i] = tilecol_first[((iter-1)%FACTORQR)+1]
+                end
+                @synchronize
+                
+                if (i>=iter)
+                    tmp_sum = zero(eltype(input))
+                    @unroll for j in 1:FACTORQR
+                        tmp_sum+=tilecol[j]*cache[j+(k-1)*FACTORQR]
+                    end
+                    cache2[k,i]=tmp_sum
+                    
+                end
+                
+                @synchronize
+
+                if (i>=iter)
+                    tmpsumiter = zero(eltype(input))
+                    tmp_sum = zero(eltype(input))
+                    @unroll for j = 1:QRSPLIT
+                        tmpsumiter+= cache2[j,iter]
+                        tmp_sum += cache2[j,i]
+                    end
+
+                    newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first_cache[iter], tmpsumiter, tmp_sum , tilecol_first_cache[i])
+                    if (k==1)
+                        tau_iter[iter]=taucurrent
+                    end
+                    
+
+                    if (i>iter)
+                        @unroll for j in 1:FACTORQR
+                            tilecol[j]*=newvalue
+                            tilecol[j]-=cache[j+(k-1)*FACTORQR]*tmp_sum2
+                        end
+                    end
+                    
+                    @unroll for j in 1:FACTORQR
+                        tilecol[j]/=newvalue
+                    end
+                end
+                @synchronize
+                if (i>=iter)
+                    if (k==1)
+                        tilecol_first_cache[i]-=tmp_sum2
+                    end
+                    
+                end
+                @synchronize
+                if (k==cld(iter,FACTORQR) && i>=iter)
+                    tilecol_first[((iter-1)%FACTORQR)+1] = tilecol_first_cache[i] 
+                end
+
+                @synchronize
+            end
+            
+
+            @unroll for j in 1:FACTORQR
+                input2[currstartrow+j+(k-1)*FACTORQR, i]=tilecol[j] 
+            end
+            if (k+(i-1)*QRSPLIT<=TILESIZE)
+                tau[k+(i-1)*QRSPLIT,currtile]=tau_iter[k+(i-1)*QRSPLIT]
+            end
+            currstartrow+=TILESIZE
+        end
+
+        @unroll for j in 1:FACTORQR
+            input[j+(k-1)*FACTORQR, i]=tilecol_first[j]
+        end
+
+    end
 end
-
 
 @kernel cpu=false  inbounds=true unsafe_indices=false  function applyQorQt_unsafe_kernel_2d!(A, @Const(Min), @Const(tau))
     g = @index(Group, Linear)
