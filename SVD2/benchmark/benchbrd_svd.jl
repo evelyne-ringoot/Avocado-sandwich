@@ -23,17 +23,20 @@ println(Dates.format(now(), "HH:MM:SS")  )
 
 
 #  bw, maxblocks, brdwidth,brdmul,size,error, timingbidiag,timingbrd, timingsvd
-output=(zeros(Int,10,9))
+output=(zeros(Int,10,11))
 output[:,1].=BW
 output[:,2].=MAXBLOCKS
 output[:,3].=BRDWIDTH
 output[:,4].=BRDMULSIZE
-output[:,5].= (2 .^(7:16))
+output[:,5].=TILESIZE
+output[:,6].=TILESIZEMUL
+output[:,7].= (2 .^(7:16))
 
 
 sizes=[128,256,512,1024,2048,4096 ]
 timings=ones(3,length(sizes))*1000000000
 errors=zeros(length(sizes))
+
 print( "Checking correctness at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
@@ -42,8 +45,10 @@ for (i,size_i) in enumerate(sizes)
     aref=vendorsvd!(Float64.(copy(input)))
     KernelAbstractions.synchronize(backend)
     aref= Array(aref) #Array because mygesvd returns CPU Array
-    errors[i]= norm((aref-aout))/norm(aref)
-
+    errors[i]= (sqrt(sum((aref-aout).^2)))/ (sqrt(sum((aout).^2)))
+    if (isnan(errors[i]))
+       errors[i]=10^6*eps(elty)
+    end
 end
 print("done at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
@@ -82,7 +87,7 @@ for (i,size_i) in enumerate(sizes)
     @printf " %4d   %8.02e    %10.04f  %10.04f  %10.04f \n" size_i errors[i] timings[1,i]/1000 timings[2,i]/1000 timings[3,i]/1000  
 end  
 
-output[1:6,7:9].=round.(Int,timings').*10
+output[1:6,8:11].=round.(Int,timings').*10
 sizes=8192 .*[1,2,4,8]
 timings=ones(3,length(sizes))*1000000000
 
@@ -94,6 +99,10 @@ try
         timings[1,i] = min( benchmark_ms_large(size_i,myblockdiag!), timings[1,i])
         timings[2,i] = min( benchmark_ms_large(size_i,mygbbrd!), timings[2,i])
         timings[3,i] = min( benchmark_ms_large(size_i,mygesvd!), timings[3,i])
+        if (i>2) 
+            output[7:10,7:9].=round.(Int,timings').*10
+            writedlm( "SVDresults"*string(elty)*"_"* string(BW)* "_"* string(MAXBLOCKS)* "_"* string(BRDWIDTH)* "_"* string(BRDMULSIZE)* "_" * string(TILESIZE) * "_" * string(TILESIZEMUL) * "_" *".csv",  output, ',')
+        end
     end
     print("done at : ")
     println(Dates.format(now(), "HH:MM:SS")  )
@@ -101,7 +110,7 @@ catch e
     println("did not finish all sizes")
 finally
     output[7:10,7:9].=round.(Int,timings').*10
-    writedlm( "SVDresults"*string(elty)*"_"* string(BW)* "_"* string(MAXBLOCKS)* "_"* string(BRDWIDTH)* "_"* string(BRDMULSIZE)* "_" *".csv",  output, ',')
+    writedlm( "SVDresults"*string(elty)*"_"* string(BW)* "_"* string(MAXBLOCKS)* "_"* string(BRDWIDTH)* "_"* string(BRDMULSIZE)* "_" * string(TILESIZE) * "_" * string(TILESIZEMUL) * "_" *".csv",  output, ',')
     println( " size   blockdiag (s)    brd (s)       svd (s)  ");
     println(" ------  ----------    ----------    ----------   ");
     for (i,size_i) in enumerate(sizes)
