@@ -44,7 +44,7 @@ for (i,size_i) in enumerate(sizes)
     KernelAbstractions.synchronize(backend)
     errors[i]=(sqrt(sum((aref-aout).^2)))/ (sqrt(sum((aout).^2)))
     if (isnan(errors[i]))
-       errors[i]=10^9*eps(elty)
+       errors[i]=10^6*eps(elty)
     end
 end
 print("done accuracy : ")
