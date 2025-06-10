@@ -2,7 +2,7 @@ timings=ones(3,length(sizes))*1000000000
 errors=zeros(2,length(sizes))
 println( "Checking correctness GPU only")
 for (i,size_i) in enumerate(sizes)
-    input=randn!(KernelAbstractions.zeros(backend,elty,size_i, size_i))
+    input=arty(randn!(backend,elty,size_i, size_i))
     aout=mygesvd!(copy(input))
     aref=vendorsvd!(copy(input))
     KernelAbstractions.synchronize(backend)
