@@ -236,7 +236,7 @@ end
 end
 
 @inline function calc_factor2( u1::T, unorm::T, uv::T, v1::T, newvalue::T) where {T<:Number}
-    if ( abs(newvalue*newvalue)<2*floatmin(T) )
+    if ( abs(newvalue*newvalue)<2*floatmin(T) && abs(u1)>=2*floatmin(T))
        return (v1)/ ( u1)
    end
     factor = uv*2/ (unorm + newvalue*newvalue)
