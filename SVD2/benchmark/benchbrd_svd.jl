@@ -52,7 +52,7 @@ for (i,size_i) in enumerate(sizes)
 end
 print("done at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
-output[1:6,6].=round.(Int,errors./eps(elty).*1000)
+output[1:6,8].=round.(Int,errors./eps(elty).*1000)
 
 
 
@@ -87,7 +87,7 @@ for (i,size_i) in enumerate(sizes)
     @printf " %4d   %8.02e    %10.04f  %10.04f  %10.04f \n" size_i errors[i] timings[1,i]/1000 timings[2,i]/1000 timings[3,i]/1000  
 end  
 
-output[1:6,8:11].=round.(Int,timings').*10
+output[1:6,9:11].=round.(Int,timings').*10
 sizes=8192 .*[1,2,4,8]
 timings=ones(3,length(sizes))*1000000000
 
@@ -100,7 +100,7 @@ try
         timings[2,i] = min( benchmark_ms_large(size_i,mygbbrd!), timings[2,i])
         timings[3,i] = min( benchmark_ms_large(size_i,mygesvd!), timings[3,i])
         if (i>2) 
-            output[7:10,7:9].=round.(Int,timings').*10
+            output[7:10,9:11].=round.(Int,timings').*10
             writedlm( "SVDresults"*string(elty)*"_"* string(BW)* "_"* string(MAXBLOCKS)* "_"* string(BRDWIDTH)* "_"* string(BRDMULSIZE)* "_" * string(TILESIZE) * "_" * string(TILESIZEMUL) * "_" *".csv",  output, ',')
         end
     end
@@ -109,7 +109,7 @@ try
 catch e
     println("did not finish all sizes")
 finally
-    output[7:10,7:9].=round.(Int,timings').*10
+    output[7:10,9:11].=round.(Int,timings').*10
     writedlm( "SVDresults"*string(elty)*"_"* string(BW)* "_"* string(MAXBLOCKS)* "_"* string(BRDWIDTH)* "_"* string(BRDMULSIZE)* "_" * string(TILESIZE) * "_" * string(TILESIZEMUL) * "_" *".csv",  output, ',')
     println( " size   blockdiag (s)    brd (s)       svd (s)  ");
     println(" ------  ----------    ----------    ----------   ");
