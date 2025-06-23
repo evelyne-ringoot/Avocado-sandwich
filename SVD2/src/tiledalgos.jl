@@ -123,10 +123,44 @@ function myblockdiag!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T},
     return A
 end
 
+function myblockdiag_unfused!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int; kend::Int=0) where {T}
+
+    for k in 1:(nbtiles-kend)
+        QRandmult_notfused!(A,Tau,k, nbtiles)
+        (k+BANDOFFSET<=nbtiles) && QRandmult_notfused!(A',Tau,k, nbtiles, LQ=true)
+    end
+    return A
+end
+
+function mycalcqr!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int; kend::Int=0) where {T}
+
+    for k in 1:(nbtiles-kend)
+        QRcalcs!(A,Tau,k, nbtiles)
+        (k+BANDOFFSET<=nbtiles) && QRcalcs!(A',Tau,k, nbtiles, LQ=true)
+    end
+    return A
+end
+
+function myapplyqr!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T}, nbtiles::Int; kend::Int=0) where {T}
+
+    for k in 1:(nbtiles-kend)
+        QRapply!(A,Tau,k, nbtiles)
+        (k+BANDOFFSET<=nbtiles) && QRapply!(A',Tau,k, nbtiles, LQ=true)
+    end
+    return A
+end
+
 
 function banddiagsvd(A::AbstractGPUMatrix)
     mygbbrd!(A)
     KernelAbstractions.synchronize(get_backend(A))
+    n=size(A,1)
+    d=((Array(A[1:n+1:end])))
+    e=((Array(A[n+1:n+1:end])))
+    return LAPACK.bdsdc!('U', 'N', d, e)[1]
+end
+
+function bidiag(A::AbstractGPUMatrix)
     n=size(A,1)
     d=((Array(A[1:n+1:end])))
     e=((Array(A[n+1:n+1:end])))
@@ -154,19 +188,74 @@ function myblockdiag!(A::AbstractGPUMatrix)
     unsafe_free!(Tau)
 end
 
+function myblockdiag_unfused!(A::AbstractGPUMatrix)
+    nbtiles=Int(size(A,1)/TILESIZE)
+    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),TILESIZE,nbtiles)
+    myblockdiag_unfused!(A,Tau,nbtiles)
+    KernelAbstractions.synchronize(get_backend(A))
+    unsafe_free!(Tau)
+end
+
+function myblockdiag_qrcalc!(A::AbstractGPUMatrix)
+    nbtiles=Int(size(A,1)/TILESIZE)
+    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),TILESIZE,nbtiles)
+    mycalcqr!(A,Tau,nbtiles)
+    KernelAbstractions.synchronize(get_backend(A))
+    unsafe_free!(Tau)
+end
+
+function myblockdiag_applyqr!(A::AbstractGPUMatrix)
+    nbtiles=Int(size(A,1)/TILESIZE)
+    Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),TILESIZE,nbtiles)
+    myapplyqr(A,Tau,nbtiles)
+    KernelAbstractions.synchronize(get_backend(A))
+    unsafe_free!(Tau)
+end
+
 function QRandmult!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
 
     QR1!(A,Tau, k;koffset=(Int(LQ)*BANDOFFSET),singlerow=false)
     Qtapply1_par!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET), singlerow=false)
     triu!(get_tileview(A, k+(Int(LQ)*BANDOFFSET),k))
 
-        for row in k+1+Int(LQ):(nbtiles)
-            #QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
-            #Qtapply2_par!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
-        end
     if ( k+1+Int(LQ)<=(nbtiles))
         QR2_fused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET)) 
         Qtapply2_parfused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET))
+        get_rowview(A',k, k+1+(Int(LQ)*BANDOFFSET)).=zero(T)
+    end
+end
+
+function QRcalcs!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
+
+    QR1!(A,Tau, k;koffset=(Int(LQ)*BANDOFFSET),singlerow=false)
+    triu!(get_tileview(A, k+(Int(LQ)*BANDOFFSET),k))
+
+    if ( k+1+Int(LQ)<=(nbtiles))
+        QR2_fused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET)) 
+        get_rowview(A',k, k+1+(Int(LQ)*BANDOFFSET)).=zero(T)
+    end
+end
+
+function QRapply!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
+
+    Qtapply1_par!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET), singlerow=false)
+
+    if ( k+1+Int(LQ)<=(nbtiles))
+        Qtapply2_parfused!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET))
+    end
+end
+
+function QRandmult_notfused!(A::AnyGPUMatrix{T}, Tau::AbstractGPUMatrix{T}, k::Int, nbtiles::Int;LQ::Bool=false)  where {T}
+
+    QR1!(A,Tau, k;koffset=(Int(LQ)*BANDOFFSET),singlerow=false)
+    Qtapply1_par!(A, Tau, k; koffset=(Int(LQ)*BANDOFFSET), singlerow=false)
+    triu!(get_tileview(A, k+(Int(LQ)*BANDOFFSET),k))
+
+        for row in k+1+Int(LQ)*BANDOFFSET:(nbtiles)
+            QR2!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
+            Qtapply2_par!(A,Tau, k, row; koffset=Int(LQ), singlerow=false)
+        end
+    if ( k+1+Int(LQ)<=(nbtiles))
         get_rowview(A',k, k+1+(Int(LQ)*BANDOFFSET)).=zero(T)
     end
 end
