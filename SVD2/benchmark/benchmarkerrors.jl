@@ -1,50 +1,32 @@
-timings=ones(3,length(sizes))*1000000000
-errors=zeros(2,length(sizes))
+
+errors=zeros(4,length(sizes))
 println( "Checking correctness GPU only")
 for (i,size_i) in enumerate(sizes)
     input=arty(randn!(zeros(elty,size_i, size_i)))
+    aband=(myblockdiag!(copy(input)))
+    KernelAbstractions.synchronize(get_backend(input))
+    abandfp64=Float64.(copy(aband))
+    KernelAbstractions.synchronize(get_backend(input))
+    abandsvd= vendorsvd!(abandfp64)
+    mygbbrd!(aband)
+    KernelAbstractions.synchronize(get_backend(input))
+    abidiagsvd= vendorsvd!(Float64.(copy(aband)))
     aout=mygesvd!(copy(input))
     aref=vendorsvd!(copy(input))
+    areffp64=vendorsvd!(Float64.(copy(input)))
     KernelAbstractions.synchronize(backend)
     if (!isnothing(aref))
-        aref= Array(aref) #Array because mygesvd returns CPU Array
-        errors[1,i]= norm((aout-aref)./aref)/sqrt(size_i)
+        aout= arty(aout) #Array because mygesvd returns CPU Array
+        errors[1,i]= norm((aout-areffp64))/norm(areffp64)
+        errors[2,i]= norm((abandsvd-areffp64))/norm(areffp64)
+        errors[3,i]= norm((abidiagsvd-areffp64))/norm(areffp64)
+        errors[4,i]= norm((aref-areffp64))/norm(areffp64)
     end
 end
 
-println( "warmup vendor only");
-for (i,size_i) in enumerate(sizes)
-    timings[1,i] = min( benchmark_ms(size_i,vendorsvd!), timings[1,i])
-end
-
-println( "warump KA only");
-for (i,size_i) in enumerate(sizes)
-    timings[2,i] = min( benchmark_ms(size_i,mygesvd!), timings[2,i])
-end
-
-println( "run vendor only");
-for (i,size_i) in enumerate(sizes)
-    timings[1,i] = min( benchmark_ms(size_i,vendorsvd!), timings[1,i])
-end
-
-println( "run KA only");
-for (i,size_i) in enumerate(sizes)
-    timings[2,i] = min( benchmark_ms(size_i,mygesvd!), timings[2,i])
-end
-
-println( "warmup brd only");
-for (i,size_i) in enumerate(sizes)
-    timings[3,i] = min( benchmark_ms(size_i, mygbbrd!), timings[3,i])
-end
-
-println( "run brd only");
-for (i,size_i) in enumerate(sizes)
-    timings[3,i] = min( benchmark_ms(size_i,mygbbrd!), timings[3,i])
-end
-
 println("GPU only SVD");
-println( " size    RRMSE    time (ms)  cutime(ms)  brd time(ms)");
+println( " size    RRMSE svd  RRMSE band  RRMSE BRD  RRMSE CUSOLVER");
 println(" ------  --------  ----------  ----------  ---------- ");
 for (i,size_i) in enumerate(sizes)
-    @printf " %4d   %8.02e    %8.02f  %8.02f   %8.02f \n" size_i errors[1,i] timings[2,i] timings[1,i] timings[3,i]
+    @printf " %4d   %8.02e    %8.02e  %8.02e   %8.02e \n" size_i errors[1,i] errors[2,i] errors[3,i] errors[4,i] 
 end  
