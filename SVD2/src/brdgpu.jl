@@ -65,7 +65,7 @@ end
         tmp_sum = accumulatevals(view(cache2,:,i,idxcurr))
         
         newvalue, factor, execiter = calc_factor(cache[1,1,idxiter], tmpsumiter, tmp_sum,  cache[idx_y,idx_x,idxcurr] )
-        
+        @synchronize
         updatevector((dolq==0) ? view(cache, i,krange,idxcurr) : view(cache, krange,i,idxcurr) , 
                             (dolq==0) ? view(cache,1,krange,idxiter) : view(cache,krange,1,idxiter) , factor,k,execiter && fullblock && (i>1 || l==2))
         
@@ -131,7 +131,7 @@ end
         tmp_sum = accumulatevals(view(cache2,:,i))
 
         newvalue, factor,execiter = calc_factor(cache[1,1], tmpsumiter, tmp_sum,cache[idx_y,idx_x] )
-
+        @synchronize
         updatevector((dolq==0) ? view(cache, i,krange) : view(cache, krange,i) , 
                             (dolq==0) ? view(cache,1,krange) : view(cache,krange,1) , factor,k,execiter && fullblock && (i>1))
         if (k+BRDSPLIT*(i-1) <= TILESIZE) 
@@ -165,7 +165,7 @@ end
 
         tmp_sum = accumulatevals(view(cache2,:,i))
         factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,dolq==0 ? cache[i,1] : cache[1,i] ,newvalue)
-
+        @synchronize
         updatevector((dolq==0) ? view(cache, i,krange) : view(cache, krange,i) , view(tilecol_cache,krange), factor,k, execiter)
         @synchronize
         (k==1 && execiter) &&  (cache[idx_y,idx_x]-=factor*newvalue)
