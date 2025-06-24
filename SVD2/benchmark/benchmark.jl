@@ -52,7 +52,7 @@ elseif (ARGS[3]=="SPECIFY")
     include("benchmarklarge.jl")
 elseif (ARGS[3]=="CHECKERRORS")
     sizes=[64,128,256,512,1024,2048, 4096,8192,4096*4]
-    include("benchmarkerros.jl")
+    include("benchmarkerrors.jl")
 else
     error("specify correct params")
 end
