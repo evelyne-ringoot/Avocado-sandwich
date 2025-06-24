@@ -28,6 +28,8 @@ try
             errors[4,i]= norm((aref-areffp64))/norm(areffp64)
         end
     end
+    print("Finished at : ")
+    println(Dates.format(now(), "HH:MM:SS")  )
 catch e
     print("unfinished at : ")
     println(Dates.format(now(), "HH:MM:SS")  )
