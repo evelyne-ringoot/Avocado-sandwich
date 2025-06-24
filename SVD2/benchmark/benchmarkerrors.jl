@@ -17,8 +17,9 @@ for (i,size_i) in enumerate(sizes)
     areffp64=vendorsvd!(Float64.(copy(input)))
     KernelAbstractions.synchronize(backend)
     if (!isnothing(aref))
-        aout= arty(aout) #Array because mygesvd returns CPU Array
-        errors[1,i]= norm((aout-areffp64))/norm(areffp64)
+        output=KernelAbstractions.zeros(backend,elty,size_i)
+        output.=aout #Array because mygesvd returns CPU Array
+        errors[1,i]= norm((output-areffp64))/norm(areffp64)
         errors[2,i]= norm((abandsvd-areffp64))/norm(areffp64)
         errors[3,i]= norm((abidiagsvd-areffp64))/norm(areffp64)
         errors[4,i]= norm((aref-areffp64))/norm(areffp64)
