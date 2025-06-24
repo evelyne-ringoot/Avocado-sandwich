@@ -1,4 +1,5 @@
 
+using Dates 
 errors=zeros(4,length(sizes))
 print( "Checking correctness GPU only at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
