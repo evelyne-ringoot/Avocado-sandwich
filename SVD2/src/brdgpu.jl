@@ -319,7 +319,10 @@ end
 @inline function calc_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
     execiter = !(abs(unorm)<2*floatmin(T)) 
     newvalue = u1 + sign(u1) *sqrt(u1*u1+unorm)
-    if ( abs(unorm)<2*floatmin(T) && abs(uv)<2*floatmin(T) )
+    #if ( abs(unorm)<2*floatmin(T) && abs(uv)<2*floatmin(T) )
+    #    return 2u1, (v1)/ ( u1), execiter
+    #end
+    if (abs(newvalue*newvalue)<2*floatmin(T) && abs(u1)>=2*floatmin(T))
         return 2u1, (v1)/ ( u1), execiter
     end
     factor = (uv +newvalue*v1)*2/ (unorm + newvalue*newvalue)

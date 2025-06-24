@@ -11,6 +11,11 @@ const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
         taucurrent = 2 / (unorm/(newvalue*newvalue) + 1)
         tmp_sum2 = (uv/newvalue +v1)*2/ (unorm/(newvalue*newvalue) + 1)
     end
+    if (abs(newvalue*newvalue)<2*floatmin(T) && abs(u1)>=2*floatmin(T))
+        newvalue= 2u1
+        tmp_sum2= (v1)/ ( u1)
+        taucurrent = 2
+    end
     return newvalue, taucurrent, tmp_sum2
 end
 
