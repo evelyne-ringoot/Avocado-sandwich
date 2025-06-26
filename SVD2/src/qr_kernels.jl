@@ -44,7 +44,10 @@ end
                 end
             end
             newvalue, taucurrent, tmp_sum2 = calc_tau_factor(cache[iter], sharedvalue[1], tmp_sum , tilecol[iter])
-            
+            if ( abs(sharedvalue[1])<2*floatmin(eltype(input)) && abs(tmp_sum)<2*floatmin(eltype(input)) )
+                taucurrent=2
+                tmp_sum2 = 2*tilecol[iter]
+            end
             
             if (i==iter)
                 tau_iter[1]=taucurrent
@@ -113,6 +116,10 @@ end
                 tmp_sum += cache2[j,i]
             end
             newvalue, taucurrent, tmp_sum2 = calc_tau_factor(sharedvalue[2], tmpsumiter, tmp_sum , tileiter)
+            if ( abs(tmpsumiter)<2*floatmin(eltype(input)) && abs(tmp_sum)<2*floatmin(eltype(input)) )
+                taucurrent=2
+                tmp_sum2 = 2*tileiter
+            end
             tau_iter = i==iter ? taucurrent : tau_iter
 
             if (i>iter)
@@ -195,6 +202,10 @@ if (TILESIZE<=64)
                     end
 
                     newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first[iter,iter], tmpsumiter, tmp_sum , tilecol_first[i,iter])
+                    if ( abs(tmpsumiter)<2*floatmin(eltype(input)) && abs(tmp_sum)<2*floatmin(eltype(input)) )
+                        taucurrent=2
+                        tmp_sum2 = 2*tilecol_first[i,iter]
+                    end
                     if (k==1)
                         tau_iter[iter]=taucurrent
                     end
@@ -293,6 +304,10 @@ else
                     end
 
                     newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first_cache[iter], tmpsumiter, tmp_sum , tilecol_first_cache[i])
+                    if ( abs(tmpsumiter)<2*floatmin(eltype(input)) && abs(tmp_sum)<2*floatmin(eltype(input)) )
+                        taucurrent=2
+                        tmp_sum2 = 2*tilecol_first_cache[i]
+                    end
                     if (k==1)
                         tau_iter[iter]=taucurrent
                     end
