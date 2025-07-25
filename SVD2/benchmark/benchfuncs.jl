@@ -96,16 +96,16 @@ function svdtestscaling(n, type, outlier::Bool)
 end
 
 function randtestmatrix(n,type,outlier,elty)
-    svdvals= diagm(svdtestscaling(n,type,outlier))
-    unit1= rand(Haar(1), n)
-    unit2= rand(Haar(1), n)
+    svdvals= diagm(vectyfp64(svdtestscaling(n,type,outlier)))
+    unit1= artyfp64(rand(Haar(1), n))
+    unit2= artyfp64(rand(Haar(1), n))
     return stochastic_round.(elty, unit1'*svdvals*unit2)
 end
 
 function randwellbehaved(n,elty)
-    svdvals= diagm(svdtestscaling(n,1,false))
-    unit1= rand(Haar(1), n)
-    unit2= rand(Haar(1), n)
+    svdvals= diagm(vectyfp64(svdtestscaling(n,1,false)))
+    unit1= artyfp64(rand(Haar(1), n))
+    unit2= artyfp64(rand(Haar(1), n))
     return stochastic_round.(elty, unit1'*svdvals*unit2)
 end
 

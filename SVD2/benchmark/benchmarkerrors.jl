@@ -12,7 +12,7 @@ println(Dates.format(now(), "HH:MM:SS")  )
                 toterrorcu=0
                 for numtest in 1:10
 
-                    input=arty(randtestmatrix(size_i,matrixtype,outlier,elty))
+                    input=(randtestmatrix(size_i,matrixtype,outlier,elty))
                     #testing vendorsvd
                     avendor=Array(vendorsvd!(copy(input)))
 
