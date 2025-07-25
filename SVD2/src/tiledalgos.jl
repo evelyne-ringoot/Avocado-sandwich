@@ -150,24 +150,23 @@ function myapplyqr!(A::AbstractGPUorLargeMatrix{T}, Tau::AbstractGPUMatrix{T}, n
     return A
 end
 
-
-function banddiagsvd(A::AbstractGPUMatrix)
+function banddiagsvd(A::AbstractGPUMatrix{T}) where T
     mygbbrd!(A)
     KernelAbstractions.synchronize(get_backend(A))
     n=size(A,1)
-    d=((Array(A[1:n+1:end])))
-    e=((Array(A[n+1:n+1:end])))
-    return LAPACK.bdsdc!('U', 'N', d, e)[1]
+    d=Float64.((Array(A[1:n+1:end])))
+    e=Float64.((Array(A[n+1:n+1:end])))
+    return T.(LAPACK.bdsdc!('U', 'N', d,e)[1])
+   
 end
 
-function bidiag(A::AbstractGPUMatrix)
+function bidiag(A::AbstractGPUMatrix{T}) where T
     n=size(A,1)
-    d=((Array(A[1:n+1:end])))
-    e=((Array(A[n+1:n+1:end])))
-    return LAPACK.bdsdc!('U', 'N', d, e)[1]
+    d=Float64.((Array(A[1:n+1:end])))
+    e=Float64.((Array(A[n+1:n+1:end])))
+    return T.(LAPACK.bdsdc!('U', 'N', d,e)[1])
 end
 
-LAPACK.bdsdc!(a, b, d::AbstractVector{Float16}, e::AbstractVector{Float16}) = LAPACK.bdsdc!(a, b, Float32.(d), Float32.(e))
 
 function mygesvd!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
