@@ -4,13 +4,9 @@ const FACTORQR = Int(TILESIZE/QRSPLIT)
 const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
 
 @inline function calc_tau_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
-    newvalue = u1 + sign(u1) *sqrt(u1*u1+unorm)
+    newvalue = u1 + (u1<0 ? -1 : 1)  *sqrt(u1*u1+unorm)
     taucurrent = 2(newvalue*newvalue) / (unorm + newvalue*newvalue)
-    tmp_sum2 = (uv +newvalue*v1)*2*newvalue/ (unorm + newvalue*newvalue)
-    if (isinf(taucurrent) || isinf(tmp_sum2))
-        taucurrent = 2 / (unorm/(newvalue*newvalue) + 1)
-        tmp_sum2 = (uv/newvalue +v1)*2/ (unorm/(newvalue*newvalue) + 1)
-    end
+    tmp_sum2 = (uv +newvalue*v1)*2/ (unorm/newvalue + newvalue)
     return newvalue, taucurrent, tmp_sum2
 end
 
@@ -44,10 +40,7 @@ end
                 end
             end
             newvalue, taucurrent, tmp_sum2 = calc_tau_factor(cache[iter], sharedvalue[1], tmp_sum , tilecol[iter])
-            if ( abs(sharedvalue[1])<2*floatmin(eltype(input)) && abs(tmp_sum)<2*floatmin(eltype(input)) )
-                taucurrent=2
-                tmp_sum2 = 2*tilecol[iter]
-            end
+
             
             if (i==iter)
                 tau_iter[1]=taucurrent
@@ -116,10 +109,7 @@ end
                 tmp_sum += cache2[j,i]
             end
             newvalue, taucurrent, tmp_sum2 = calc_tau_factor(sharedvalue[2], tmpsumiter, tmp_sum , tileiter)
-            if ( abs(tmpsumiter)<2*floatmin(eltype(input)) && abs(tmp_sum)<2*floatmin(eltype(input)) )
-                taucurrent=2
-                tmp_sum2 = 2*tileiter
-            end
+
             tau_iter = i==iter ? taucurrent : tau_iter
 
             if (i>iter)
@@ -134,7 +124,7 @@ end
             end
             
             if (k==1)
-                input[iter, i]-=tmp_sum2
+                input[iter, i]=tileiter-tmp_sum2
             end
             
         end
@@ -202,10 +192,7 @@ if (TILESIZE<=64)
                     end
 
                     newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first[iter,iter], tmpsumiter, tmp_sum , tilecol_first[i,iter])
-                    if ( abs(tmpsumiter)<2*floatmin(eltype(input)) && abs(tmp_sum)<2*floatmin(eltype(input)) )
-                        taucurrent=2
-                        tmp_sum2 = 2*tilecol_first[i,iter]
-                    end
+
                     if (k==1)
                         tau_iter[iter]=taucurrent
                     end
@@ -304,10 +291,7 @@ else
                     end
 
                     newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first_cache[iter], tmpsumiter, tmp_sum , tilecol_first_cache[i])
-                    if ( abs(tmpsumiter)<2*floatmin(eltype(input)) && abs(tmp_sum)<2*floatmin(eltype(input)) )
-                        taucurrent=2
-                        tmp_sum2 = 2*tilecol_first_cache[i]
-                    end
+
                     if (k==1)
                         tau_iter[iter]=taucurrent
                     end

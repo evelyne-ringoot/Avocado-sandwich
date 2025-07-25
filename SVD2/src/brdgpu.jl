@@ -67,12 +67,12 @@ end
         newvalue, factor, execiter = calc_factor(cache[1,1,idxiter], tmpsumiter, tmp_sum,  cache[idx_y,idx_x,idxcurr] )
         @synchronize
         updatevector((dolq==0) ? view(cache, i,krange,idxcurr) : view(cache, krange,i,idxcurr) , 
-                            (dolq==0) ? view(cache,1,krange,idxiter) : view(cache,krange,1,idxiter) , factor,k,execiter && fullblock && (i>1 || l==2))
+                            (dolq==0) ? view(cache,1,krange,idxiter) : view(cache,krange,1,idxiter) , factor,k,execiter && fullblock && (i>1 || l==2),newvalue)
         
         @synchronize
         
         (k==1 && i>1 &&l==1) && (cache[idx_x,idx_y,idxiter]= zero(eltype(input)))
-        (k==1 && execiter ) &&  (cache[idx_y,idx_x,idxcurr]-=factor*newvalue)
+        (k==1 && execiter ) &&  (cache[idx_y,idx_x,idxcurr]-=factor)
 
         @synchronize
 
@@ -90,7 +90,7 @@ end
     end
 
     if (l==2)
-        sendblockbacktomem(input, view(cache,krange,i,idxcurr), k, i, rowidx+TILESIZE*2, colidx+2*TILESIZE, nbrows)
+        sendblockbacktomem(input, view(cache,krange,i,idxcurr), k, i, rowidx+2TILESIZE, colidx+2TILESIZE, nbrows)
     end
 
 end
@@ -133,7 +133,7 @@ end
         newvalue, factor,execiter = calc_factor(cache[1,1], tmpsumiter, tmp_sum,cache[idx_y,idx_x] )
         @synchronize
         updatevector((dolq==0) ? view(cache, i,krange) : view(cache, krange,i) , 
-                            (dolq==0) ? view(cache,1,krange) : view(cache,krange,1) , factor,k,execiter && fullblock && (i>1))
+                            (dolq==0) ? view(cache,1,krange) : view(cache,krange,1) , factor,k,execiter && fullblock && (i>1),newvalue)
         if (k+BRDSPLIT*(i-1) <= TILESIZE) 
             tilecol_cache[k+BRDSPLIT*(i-1)]= (dolq == 0) ?  cache[1,k+BRDSPLIT*(i-1)] : cache[k+BRDSPLIT*(i-1),1]
         end
@@ -141,7 +141,7 @@ end
         @synchronize
 
         (k==1 && i>1) && (cache[idx_x,idx_y]= zero(eltype(input)))
-        (k==1 && execiter) &&  (cache[idx_y,idx_x]-=factor*newvalue)
+        (k==1 && execiter) &&  (cache[idx_y,idx_x]-=factor)
         
         @synchronize
 
@@ -166,9 +166,9 @@ end
         tmp_sum = accumulatevals(view(cache2,:,i))
         factor = calc_factor2(pivotel, tmpsumiter, tmp_sum,dolq==0 ? cache[i,1] : cache[1,i] ,newvalue)
         @synchronize
-        updatevector((dolq==0) ? view(cache, i,krange) : view(cache, krange,i) , view(tilecol_cache,krange), factor,k, execiter)
+        updatevector((dolq==0) ? view(cache, i,krange) : view(cache, krange,i) , view(tilecol_cache,krange), factor,k, execiter,newvalue)
         @synchronize
-        (k==1 && execiter) &&  (cache[idx_y,idx_x]-=factor*newvalue)
+        (k==1 && execiter) &&  (cache[idx_y,idx_x]-=factor)
         @synchronize
 
         fullblock=true
@@ -317,37 +317,22 @@ end
 
 
 @inline function calc_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
-    execiter = !(abs(unorm)<2*floatmin(T)) 
-    newvalue = u1 + sign(u1) *sqrt(u1*u1+unorm)
-    #if ( abs(unorm)<2*floatmin(T) && abs(uv)<2*floatmin(T) )
-    #    return 2u1, (v1)/ ( u1), execiter
-    #end
-    if (abs(newvalue*newvalue)<2*floatmin(T) && abs(u1)>=2*floatmin(T))
-        return 2u1, (v1)/ ( u1), execiter
-    end
-    factor = (uv +newvalue*v1)*2/ (unorm + newvalue*newvalue)
-    if ( isinf(factor))
-        factor = (uv/(newvalue*newvalue)  +v1/newvalue)*2/ (unorm/(newvalue*newvalue) + 1)
-    end
-    
+    newvalue = u1 + (u1<0 ? -1 : 1) *sqrt(u1*u1+unorm)
+    execiter = !(abs(newvalue)<2floatmin(T) || abs(unorm)<2floatmin(T)) 
+    factor = (uv +newvalue*v1)*2/ (unorm/newvalue + newvalue)
     return newvalue, factor, execiter
 end
 
 @inline function calc_factor2( u1::T, unorm::T, uv::T, v1::T, newvalue::T) where {T<:Number}
-    if ( abs(unorm)<2*floatmin(T) && abs(newvalue*newvalue)<2*floatmin(T) )
-        return (v1)/ ( u1)
-    end
-    factor = uv*2/ (unorm + newvalue*newvalue)
-    if ( isinf(factor))
-        factor = uv/(newvalue*newvalue) *2/ (unorm/(newvalue*newvalue) + 1)
-    end
+
+    factor = 2uv/ (unorm/newvalue + newvalue)
     return factor
 end
 
-@inline function updatevector(vec1, vec2, factor::Number,k::Int,execute::Bool)
+@inline function updatevector(vec1, vec2, factor::Number,k::Int,execute::Bool,newvalue)
     if (execute)
         @unroll for j in 1:BRDSPLITFACTOR
-            vec1[j]-=((k+j==2) ?  zero(eltype(vec1)) : factor* vec2[j])
+            vec1[j]-=((k+j==2) ?  zero(eltype(vec1)) : factor* (vec2[j]/newvalue))
         end
     end
 end

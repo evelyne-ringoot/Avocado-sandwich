@@ -190,7 +190,7 @@ end
                         tmp_sum = mulvecvec_nosplit(tilecol, tilecol_cache,true)
                         tilecol1=tilecol[1]
                         factor = calc_factor2(pivotel, tmpsumiter, tmp_sum, tilecol1,newvalue)
-                        updatevector(tilecol , tilecol_cache, factor, execiter)
+                        updatevector(tilecol , tilecol_cache, factor, execiter,newvalue)
 
                         
                         @unroll for j in 1:BRDWIDTH
@@ -230,23 +230,19 @@ end
 
 
 @inline function calc_factor(u1::T, unorm::T) where {T<:Number}
-    execiter = !(abs(unorm)<=2floatmin(T)) 
-    newvalue = u1 + sign(u1) *sqrt(u1*u1+unorm)
+    newvalue = u1 + (u1<0 ? -1 : 1)  *sqrt(u1*u1+unorm)
+    execiter = !(abs(unorm)<=2floatmin(T) || abs(newvalue)<=2floatmin(T)) 
     return newvalue, execiter
 end
 
 @inline function calc_factor2( u1::T, unorm::T, uv::T, v1::T, newvalue::T) where {T<:Number}
-    if ( abs(newvalue*newvalue)<2*floatmin(T) && abs(u1)>=2*floatmin(T))
-       return (v1)/ ( u1)
-   end
-    factor = uv*2/ (unorm + newvalue*newvalue)
-    return factor
+    return uv*2/ (unorm/newvalue + newvalue)
 end
 
-@inline function updatevector(vec1, vec2, factor::Number,execute::Bool)
+@inline function updatevector(vec1, vec2, factor::Number,execute::Bool,newvalue)
     if (execute)
         @unroll for j in 1:BRDWIDTH+1
-            vec1[j]-=  factor* vec2[j]
+            vec1[j]-=  factor* (vec2[j]/newvalue)
         end
     end
 end
