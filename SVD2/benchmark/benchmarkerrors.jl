@@ -21,12 +21,12 @@ println(Dates.format(now(), "HH:MM:SS")  )
                     #reference
                     aref=(svdtestscaling(size_i,matrixtype,outlier))
                     KernelAbstractions.synchronize(backend)
-                    kaeeror=norm((mysvdres-aref))/norm(aref)
+                    kaerror=norm((mysvdres-aref))/norm(aref)
                     cuerror=norm((avendor-aref))/norm(aref)
                     maxerroka = maximum(maxerroka, kaerror)
                     maxerrorcu = maximum(maxerrorcu,cuerror)
                     toterrorcu+=cuerror
-                    toterrorka+=kaeeror
+                    toterrorka+=kaerror
                 end
     
                 errors[(matrixtype-1)*2+1+outlier,1,i]= toterrorka/10
