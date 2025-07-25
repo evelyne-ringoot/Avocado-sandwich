@@ -1,7 +1,8 @@
 errors=zeros(6,4,length(sizes))
 print( "Checking correctness GPU only at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
-
+    println( " size   testmatrix   ERR KA max  ER vend max   ERR KA avg  ER vend avg ");
+    println(" ------  --------    ----------  ----------   ----------  ----------  ");
     for (i,size_i) in enumerate(sizes)
         for matrixtype in 1:3
             for outlier in [true, false]
@@ -33,16 +34,11 @@ println(Dates.format(now(), "HH:MM:SS")  )
                 errors[(matrixtype-1)*2+1+outlier,2,i]= toterrorcu/10
                 errors[(matrixtype-1)*2+1+outlier,3,i]= maxerroka
                 errors[(matrixtype-1)*2+1+outlier,4,i]= maxerrorcu
+                @printf " %4d       %2d       %8.02e     %8.02e     %8.02e     %8.02e    \n" size_i type errors[(matrixtype-1)*2+1+outlier,3,i] errors[(matrixtype-1)*2+1+outlier,4,i] errors[(matrixtype-1)*2+1+outlier,1,i] errors[(matrixtype-1)*2+1+outlier,2,i] 
             end
+            
         end
     end
     print("Finished at : ")
     println(Dates.format(now(), "HH:MM:SS")  )
 
-    println( " size   testmatrix   ERR KA max  ER vend max   ERR KA avg  ER vend avg ");
-    println(" ------  --------    ----------  ----------   ----------  ----------  ");
-    for type in 1:6
-        for (i,size_i) in enumerate(sizes)
-            @printf " %4d       %2d       %8.02e     %8.02e     %8.02e     %8.02e    \n" size_i type errors[type,3,i] errors[type,4,i] errors[type,1,i] errors[type,2,i] 
-        end
-    end  
