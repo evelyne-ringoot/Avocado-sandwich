@@ -38,6 +38,7 @@ println(Dates.format(now(), "HH:MM:SS")  )
             end
             
         end
+        flush(stdout)
     end
     print("Finished at : ")
     println(Dates.format(now(), "HH:MM:SS")  )
