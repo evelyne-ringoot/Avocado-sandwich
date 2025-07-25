@@ -1,11 +1,11 @@
 errors=zeros(6,4,length(sizes))
 print( "Checking correctness GPU only at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
-    println( " size   testmatrix   ERR KA max  ER vend max   ERR KA avg  ER vend avg ");
-    println(" ------  --------    ----------  ----------   ----------  ----------  ");
+    println( " size   testmatrix   ERR KA max  ERR vendor max   ERR KA avg  ERR vendor avg ");
+    println(" ------  --------    ----------  ------------   ----------  ------------  ");
     for (i,size_i) in enumerate(sizes)
-        for matrixtype in 1:3
-            for outlier in [true, false]
+        for outlier in [false, true]
+            for matrixtype in 1:3
                 maxerroka=0
                 toterrorka=0
                 maxerrorcu=0
@@ -34,11 +34,10 @@ println(Dates.format(now(), "HH:MM:SS")  )
                 errors[(matrixtype-1)*2+1+outlier,2,i]= toterrorcu/10
                 errors[(matrixtype-1)*2+1+outlier,3,i]= maxerroka
                 errors[(matrixtype-1)*2+1+outlier,4,i]= maxerrorcu
-                @printf " %4d       %2d       %8.02e     %8.02e     %8.02e     %8.02e    \n" size_i (matrixtype-1)*2+1+outlier errors[(matrixtype-1)*2+1+outlier,3,i] errors[(matrixtype-1)*2+1+outlier,4,i] errors[(matrixtype-1)*2+1+outlier,1,i] errors[(matrixtype-1)*2+1+outlier,2,i] 
+                @printf " %4d       %2d       %8.02e     %8.02e       %8.02e     %8.02e    \n" size_i (matrixtype-1)*2+1+outlier errors[(matrixtype-1)*2+1+outlier,3,i] errors[(matrixtype-1)*2+1+outlier,4,i] errors[(matrixtype-1)*2+1+outlier,1,i] errors[(matrixtype-1)*2+1+outlier,2,i] 
             end
             
         end
-        flush(STDOUT)
     end
     print("Finished at : ")
     println(Dates.format(now(), "HH:MM:SS")  )
