@@ -73,3 +73,39 @@ function benchmark_ms_muladd( size_i, myfunc)
     unsafe_free!(a)
     return best
 end
+
+function svdtestscaling(n, type, outlier::Bool)
+    if type==1
+       out= (1:-1/(n-1):0)
+    elseif (type==2)
+        out= 10 .^(0:(log10(10eps(elty)))/(n-1):log10(10eps(elty)))
+    elseif (type==3)
+        semicriclecdf(x)= (x>1 ? 1+eps(elty) : (x<0 ? 0-eps(elty) : (2x/π)*sqrt(1-x^2)+(2/π)*asin(x) ))
+        out = zeros(n)
+        for i in 2:n
+            f(x)=semicriclecdf(x)-(i-1)/(n-1)
+            out[i] = find_zero(f ,(0,1))
+        end
+        out= reverse(out)
+    end
+    if outlier
+        out=[out...]
+        out[1]=sqrt(n)
+    end
+    return out
+end
+
+function randtestmatrix(n,type,outlier,elty)
+    svdvals= diagm(svdtestscaling(n,type,outlier))
+    unit1= rand(Haar(1), n)
+    unit2= rand(Haar(1), n)
+    return stochastic_round.(elty, unit1'*svdvals*unit2)
+end
+
+function randwellbehaved(n,elty)
+    svdvals= diagm(svdtestscaling(n,1,false))
+    unit1= rand(Haar(1), n)
+    unit2= rand(Haar(1), n)
+    return stochastic_round.(elty, unit1'*svdvals*unit2)
+end
+

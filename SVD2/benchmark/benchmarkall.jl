@@ -2,14 +2,12 @@ timings=ones(3,length(sizes))*1000000000
 errors=zeros(2,length(sizes))
 println( "Checking correctness GPU only")
 for (i,size_i) in enumerate(sizes)
-    input=arty(randn!(zeros(elty,size_i, size_i)))
+    input=arty(randwellbehaved(size_i,elty,svdtestscaling))
     aout=mygesvd!(copy(input))
-    aref=vendorsvd!(copy(input))
     KernelAbstractions.synchronize(backend)
-    if (!isnothing(aref))
-        aref= Array(aref) #Array because mygesvd returns CPU Array
-        errors[1,i]= norm((aout-aref)./aref)/sqrt(size_i)
-    end
+    aref=vecty(svdtestscaling(size_i))
+    errors[1,i]= (sqrt(sum((aref-aout).^2)))/ (sqrt(sum((aref).^2)))
+
 end
 
 println( "warmup vendor only");

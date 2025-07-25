@@ -1,4 +1,4 @@
-using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf
+using StochasticRounding,Distributions, KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, RandomMatrices, Roots, Dates
 
 if (ARGS[2]=="H")
     elty=Float16
@@ -23,6 +23,9 @@ else
 end
 
 arty=typeof(KernelAbstractions.zeros(backend,elty,2,2))
+vecty=typeof(KernelAbstractions.zeros(backend,elty,2))
+
+
 
 const TILESIZE = length(ARGS)>=5 ? parse(Int,ARGS[5]) : 64
 const TILESIZEMUL =  length(ARGS)>=6 ? parse(Int,ARGS[6]) : 32
@@ -51,12 +54,8 @@ elseif (ARGS[3]=="SPECIFY")
     sizes=[parse(Int,ARGS[4])]
     include("benchmarklarge.jl")
 elseif (ARGS[3]=="CHECKERRORS")
-    sizes=[64,128,256,512,1024,2048, 4096,8192,4096*4]
+    sizes=[64,128,256,512,1024,2048]
     include("benchmarkerrors.jl")
 else
     error("specify correct params")
 end
-
-include("benchmarkmataddmul.jl")
-
-

@@ -1,4 +1,4 @@
-using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dates, DelimitedFiles
+using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dates, DelimitedFiles, RandomMatrices
 
 include("parseinputargs.jl")
 include("../src/brdgpunew.jl")
@@ -8,6 +8,8 @@ include("../src/KAfuncs.jl")
 include("../src/qr_kernels.jl")
 include("../src/tiledalgos.jl")
 mygbbrd!(A)=mygbbrd_packed!(A)
+vecty=typeof(KernelAbstractions.zeros(backend,elty,2))
+svdtestscaling(n) = (11:-10/(n-1):1)
 
 print("starting code : ")
 println(Dates.format(now(), "HH:MM:SS")  )
@@ -40,12 +42,13 @@ errors=zeros(length(sizes))
 print( "Checking correctness at : ")
 println(Dates.format(now(), "HH:MM:SS")  )
 for (i,size_i) in enumerate(sizes)
-    input=randn!(KernelAbstractions.zeros(backend,elty,size_i, size_i))
+    input=KernelAbstractions.zeros(backend,elty,size_i, size_i)
+    copyto!(input, randwellbehaved(size_i,elty,svdtestscaling))
     aout=(mygesvd!(copy(input)))
-    aref=vendorsvd!(Float64.(copy(input)))
+    aref=vecty(svdtestscaling(size_i))
     KernelAbstractions.synchronize(backend)
     aref= Array(aref) #Array because mygesvd returns CPU Array
-    errors[i]= (sqrt(sum((aref-aout).^2)))/ (sqrt(sum((aout).^2)))
+    errors[i]= (sqrt(sum((aref-aout).^2)))/ (sqrt(sum((aref).^2)))
     if (isnan(errors[i]))
        errors[i]=10^6*eps(elty)
     end
