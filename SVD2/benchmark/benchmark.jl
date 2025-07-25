@@ -24,6 +24,8 @@ end
 
 arty=typeof(KernelAbstractions.zeros(backend,elty,2,2))
 vecty=typeof(KernelAbstractions.zeros(backend,elty,2))
+artyfp64=typeof(KernelAbstractions.zeros(backend,Float64,2,2))
+vectyfp64=typeof(KernelAbstractions.zeros(backend,Float64,2))
 
 
 
