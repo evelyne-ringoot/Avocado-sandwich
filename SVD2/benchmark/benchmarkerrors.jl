@@ -34,10 +34,11 @@ println(Dates.format(now(), "HH:MM:SS")  )
                 errors[(matrixtype-1)*2+1+outlier,2,i]= toterrorcu/10
                 errors[(matrixtype-1)*2+1+outlier,3,i]= maxerroka
                 errors[(matrixtype-1)*2+1+outlier,4,i]= maxerrorcu
-                @printf " %4d       %2d       %8.02e     %8.02e     %8.02e     %8.02e    \n" size_i type errors[(matrixtype-1)*2+1+outlier,3,i] errors[(matrixtype-1)*2+1+outlier,4,i] errors[(matrixtype-1)*2+1+outlier,1,i] errors[(matrixtype-1)*2+1+outlier,2,i] 
+                @printf " %4d       %2d       %8.02e     %8.02e     %8.02e     %8.02e    \n" size_i (matrixtype-1)*2+1+outlier errors[(matrixtype-1)*2+1+outlier,3,i] errors[(matrixtype-1)*2+1+outlier,4,i] errors[(matrixtype-1)*2+1+outlier,1,i] errors[(matrixtype-1)*2+1+outlier,2,i] 
             end
             
         end
+        flush(STDOUT)
     end
     print("Finished at : ")
     println(Dates.format(now(), "HH:MM:SS")  )
