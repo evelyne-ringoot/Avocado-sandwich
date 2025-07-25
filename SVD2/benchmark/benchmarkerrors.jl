@@ -23,8 +23,8 @@ println(Dates.format(now(), "HH:MM:SS")  )
                     KernelAbstractions.synchronize(backend)
                     kaerror=norm((mysvdres-aref))/norm(aref)
                     cuerror=norm((avendor-aref))/norm(aref)
-                    maxerroka = maximum(maxerroka, kaerror)
-                    maxerrorcu = maximum(maxerrorcu,cuerror)
+                    maxerroka = maxerroka> kaerror ? maxerroka : kaerror
+                    maxerrorcu = maxerrorcu > cuerror ? maxerrorcu : cuerror
                     toterrorcu+=cuerror
                     toterrorka+=kaerror
                 end
