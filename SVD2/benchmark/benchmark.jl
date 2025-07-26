@@ -56,7 +56,7 @@ elseif (ARGS[3]=="SPECIFY")
     sizes=[parse(Int,ARGS[4])]
     include("benchmarklarge.jl")
 elseif (ARGS[3]=="CHECKERRORS")
-    sizes=[64,128,256,512,1024,2048]
+    sizes=[64,128,256,512,1024,2048,2048*2,1024*8,1024*16,1024*32]
     include("benchmarkerrors.jl")
 else
     error("specify correct params")
