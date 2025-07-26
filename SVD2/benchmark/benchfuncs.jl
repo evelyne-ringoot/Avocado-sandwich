@@ -78,7 +78,8 @@ function svdtestscaling(n, type, outlier::Bool)
     if type==1
        out= (1:-1/(n-1):0)
     elseif (type==2)
-        out= 10 .^(0:(log10(10eps(elty)))/(n-1):log10(10eps(elty)))
+        out= 10 .^((0:1/(n-1):1).*log10(10eps(elty)))
+
     elseif (type==3)
         semicriclecdf(x)= (x>1 ? 1+eps(elty) : (x<0 ? 0-eps(elty) : (2x/π)*sqrt(1-x^2)+(2/π)*asin(x) ))
         out = zeros(n)
@@ -97,15 +98,19 @@ end
 
 function randtestmatrix(n,type,outlier,elty)
     svdvals= (vectyfp64(svdtestscaling(n,type,outlier)))
-    unit1= artyfp64(qr!(artyfp64(randn(n,n))).Q)
+    a=KernelAbstractions.zeros(backend,Float64,n,n)
+    a[1:n+1:end].=svdvals
+    unit1= (qr!(artyfp64(randn(n,n))).Q)
     unit2= qr!(artyfp64(randn(n,n))).Q
-    return elty.( (unit1'.*svdvals)*unit2)
+    return elty.( unit1*a*unit2)
 end
 
 function randwellbehaved(n,elty)
     svdvals= (vectyfp64(svdtestscaling(n,1,false)))
-    unit1= artyfp64(qr!(artyfp64(randn(n,n))).Q)
+    a=KernelAbstractions.zeros(backend,Float64,n,n)
+    a[1:n+1:end].=svdvals
+    unit1= (qr!(artyfp64(randn(n,n))).Q)
     unit2= qr!(artyfp64(randn(n,n))).Q
-    return elty.( (unit1'.*svdvals)*unit2)
+    return elty.( unit1*a*unit2)
 end
 
