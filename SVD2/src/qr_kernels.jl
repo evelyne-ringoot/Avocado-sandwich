@@ -7,8 +7,10 @@ const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
     newvalue = u1 + (u1<0 ? -1 : 1)  *sqrt(u1*u1+unorm)
     taucurrent = 2(newvalue*newvalue) / (unorm + newvalue*newvalue)
     tmp_sum2 = (uv +newvalue*v1)*2/ (unorm/newvalue + newvalue)
-    if (newvalue<2floatmin(T))
-        tmp_sum2 = (uv +newvalue*v1)*newvalue*2/ (unorm + newvalue*newvalue)
+    if (abs(newvalue)<10floatmin(T))
+        newvalue=1
+        taucurrent=2
+        tmp_sum2=v1
     end
     return newvalue, taucurrent, tmp_sum2
 end
@@ -47,14 +49,16 @@ end
             
             if (i==iter)
                 tau_iter[1]=taucurrent
+                @unroll for j in iter+1:TILESIZE
+                    tilecol[j]/=newvalue
+                end
             else
                 @unroll for j in iter+1:TILESIZE
-                    tilecol[j]= tilecol[j]*newvalue-cache[j]*tmp_sum2
+                    tilecol[j]-=tmp_sum2*(cache[j]/newvalue)
                 end
             end
-            @unroll for j in iter+1:TILESIZE
-                tilecol[j]/=newvalue
-            end
+            
+            
             tilecol[iter]-=tmp_sum2
 
         end
@@ -117,14 +121,15 @@ end
 
             if (i>iter)
                 @unroll for j in 1:FACTORQR
-                    tilecol[j]*=newvalue
-                    tilecol[j]-=cache[j+(k-1)*FACTORQR]*tmp_sum2
+                    tilecol[j]-=tmp_sum2*(cache[j+(k-1)*FACTORQR]/newvalue)
+                end
+            else
+                @unroll for j in 1:FACTORQR
+                    tilecol[j]/=newvalue
                 end
             end
             
-            @unroll for j in 1:FACTORQR
-                tilecol[j]/=newvalue
-            end
+            
             
             if (k==1)
                 input[iter, i]=tileiter-tmp_sum2
@@ -203,13 +208,13 @@ if (TILESIZE<=64)
 
                     if (i>iter)
                         @unroll for j in 1:FACTORQR
-                            tilecol[j]*=newvalue
-                            tilecol[j]-=cache[j+(k-1)*FACTORQR]*tmp_sum2
+                            tilecol[j]-=tmp_sum2*(cache[j+(k-1)*FACTORQR]/newvalue)
                         end
-                    end
+                    else
                     
-                    @unroll for j in 1:FACTORQR
-                        tilecol[j]/=newvalue
+                        @unroll for j in 1:FACTORQR
+                            tilecol[j]/=newvalue
+                        end
                     end
                 end
                 @synchronize
@@ -302,13 +307,13 @@ else
 
                     if (i>iter)
                         @unroll for j in 1:FACTORQR
-                            tilecol[j]*=newvalue
-                            tilecol[j]-=cache[j+(k-1)*FACTORQR]*tmp_sum2
+                            tilecol[j]-=tmp_sum2*(cache[j+(k-1)*FACTORQR]/newvalue)
                         end
-                    end
+                    else
                     
-                    @unroll for j in 1:FACTORQR
-                        tilecol[j]/=newvalue
+                        @unroll for j in 1:FACTORQR
+                            tilecol[j]/=newvalue
+                        end
                     end
                 end
                 @synchronize
