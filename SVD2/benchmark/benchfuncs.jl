@@ -99,13 +99,13 @@ function randtestmatrix(n,type,outlier,elty)
     svdvals= (vectyfp64(svdtestscaling(n,type,outlier)))
     unit1= artyfp64(qr!(artyfp64(randn(n,n))).Q)
     unit2= qr!(artyfp64(randn(n,n))).Q
-    return elty.( (unit1'.*svdvals)*unit2)
+    return stochastic_round.(elty, (unit1'.*svdvals)*unit2)
 end
 
 function randwellbehaved(n,elty)
     svdvals= (vectyfp64(svdtestscaling(n,1,false)))
     unit1= artyfp64(qr!(artyfp64(randn(n,n))).Q)
     unit2= qr!(artyfp64(randn(n,n))).Q
-    return elty.( (unit1'.*svdvals)*unit2)
+    return stochastic_round.(elty, (unit1'.*svdvals)*unit2)
 end
 

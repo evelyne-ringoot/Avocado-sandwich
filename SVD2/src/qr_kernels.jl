@@ -7,6 +7,9 @@ const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
     newvalue = u1 + (u1<0 ? -1 : 1)  *sqrt(u1*u1+unorm)
     taucurrent = 2(newvalue*newvalue) / (unorm + newvalue*newvalue)
     tmp_sum2 = (uv +newvalue*v1)*2/ (unorm/newvalue + newvalue)
+    if (newvalue<2floatmin(T))
+        tmp_sum2 = (uv +newvalue*v1)*newvalue*2/ (unorm + newvalue*newvalue)
+    end
     return newvalue, taucurrent, tmp_sum2
 end
 
