@@ -52,7 +52,7 @@ try
     for (i,size_i) in enumerate(sizes)
         timing = benchmark_ms_large(size_i,mygesvd!)
         @printf " %4d   %8.02e    %8.02f   \n" size_i 0.0 timing
-        output[i,6].=timing*10
+        output[i,6]=timing*10
         writedlm( "results"*string(elty)*"_"* string(TILESIZE)* "_"* string(TILESIZEMUL)* "_"* string(QRSPLIT)* "_large.csv",  output, ',')
     end
 catch e
