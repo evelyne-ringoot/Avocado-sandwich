@@ -16,7 +16,7 @@ for (i,size_i) in enumerate(sizes)
     input=arty(randwellbehaved(size_i,elty))
     aout=mygesvd!(copy(input))
     KernelAbstractions.synchronize(backend)
-    aref=vecty(svdtestscaling(size_i,1,false))
+    aref=(svdtestscaling(size_i,1,false))
     errors[i]= (sqrt(sum((aref-aout).^2)))/ (sqrt(sum((aref).^2)))
 end
 
