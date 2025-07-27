@@ -58,6 +58,10 @@ elseif (ARGS[3]=="SPECIFY")
 elseif (ARGS[3]=="CHECKERRORS")
     sizes=[64,128,256,512,1024,2048,2048*2,1024*8,1024*16,1024*32]
     include("benchmarkerrors.jl")
+elseif (ARGS[3]=="SUBFUNC")
+    include("benchmarksubfunctions.jl")
+elseif (ARGS[3]=="ALL")
+    include("benchmarkallandlarge.jl")
 else
     error("specify correct params")
 end

@@ -160,6 +160,13 @@ function banddiagsvd(A::AbstractGPUMatrix{T}) where T
    
 end
 
+function bidiagsvd(A::AbstractGPUMatrix{T}) where T
+    n=size(A,1)
+    d=Float64.((Array(A[1:n+1:end])))
+    e=Float64.((Array(A[n+1:n+1:end])))
+    return T.(LAPACK.bdsdc!('U', 'N', d,e)[1])
+end
+
 function bidiag(A::AbstractGPUMatrix{T}) where T
     n=size(A,1)
     d=Float64.((Array(A[1:n+1:end])))
