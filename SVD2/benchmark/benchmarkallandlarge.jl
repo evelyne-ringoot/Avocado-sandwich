@@ -48,16 +48,13 @@ output[:,3].=QRSPLIT
 output[:,4].= (elty==Float32 ? 2 : (elty==Float64 ? 3 : 1) )
 output[:,5].= sizes
 
-try
+
     for (i,size_i) in enumerate(sizes)
         timing = benchmark_ms_large(size_i,mygesvd!)
         @printf " %4d   %8.02e    %8.02f   \n" size_i 0.0 timing
         output[i,6]=timing*10
         writedlm( "results"*string(elty)*"_"* string(TILESIZE)* "_"* string(TILESIZEMUL)* "_"* string(QRSPLIT)* "_large.csv",  output, ',')
     end
-catch e
-    println("did not run all sizes")
-end
 
 
 
