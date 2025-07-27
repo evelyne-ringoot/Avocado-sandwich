@@ -213,7 +213,7 @@ end
 function myblockdiag_applyqr!(A::AbstractGPUMatrix)
     nbtiles=Int(size(A,1)/TILESIZE)
     Tau=KernelAbstractions.zeros(get_backend(A),eltype(A),TILESIZE,nbtiles)
-    myapplyqr(A,Tau,nbtiles)
+    myapplyqr!(A,Tau,nbtiles)
     KernelAbstractions.synchronize(get_backend(A))
     unsafe_free!(Tau)
 end
