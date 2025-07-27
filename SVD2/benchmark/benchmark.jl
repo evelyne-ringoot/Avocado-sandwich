@@ -1,5 +1,4 @@
-using StochasticRounding,Distributions, KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, RandomMatrices, Roots, Dates
-
+using StochasticRounding,Distributions, KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, RandomMatrices, Roots, Dates,  DelimitedFiles
 if (ARGS[2]=="H")
     elty=Float16
 elseif (ARGS[2]=="S")

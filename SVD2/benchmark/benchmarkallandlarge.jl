@@ -1,6 +1,16 @@
 sizes=[64,128,256,512,1024,2048, 4096]
 timings=ones(length(sizes))*1000000000
 errors=zeros(length(sizes))
+
+output=(zeros(Int,length(sizes),6))
+output[:,1].=TILESIZE
+output[:,2].=TILESIZEMUL
+output[:,3].=QRSPLIT
+output[:,4].= (elty==Float32 ? 2 : (elty==Float64 ? 3 : 1) )
+output[:,5].= sizes
+
+
+
 println( "Checking correctness GPU only")
 for (i,size_i) in enumerate(sizes)
     input=arty(randwellbehaved(size_i,elty))
@@ -26,13 +36,22 @@ println(" ------  --------  ----------   ");
 for (i,size_i) in enumerate(sizes)
     @printf " %4d   %8.02e    %8.02f   \n" size_i errors[i] timings[i] 
 end  
+writedlm( "BRDresults"*string(elty)*"_"* string(TILESIZE)* "_"* string(TILESIZEMUL)* "_"* string(QRSPLIT)* "_small.csv",  output, ',')
 
 sizes=1024 .*[8,16,32]
+output=(zeros(Int,length(sizes),6))
+output[:,1].=TILESIZE
+output[:,2].=TILESIZEMUL
+output[:,3].=QRSPLIT
+output[:,4].= (elty==Float32 ? 2 : (elty==Float64 ? 3 : 1) )
+output[:,5].= sizes
+
 
 try
     for (i,size_i) in enumerate(sizes)
         timing = benchmark_ms_large(size_i,mygesvd!)
         @printf " %4d   %8.02e    %8.02f   \n" size_i 0.0 timing
+        writedlm( "BRDresults"*string(elty)*"_"* string(TILESIZE)* "_"* string(TILESIZEMUL)* "_"* string(QRSPLIT)* "_large.csv",  output, ',')
     end
 catch e
     println("did not run all sizes")
