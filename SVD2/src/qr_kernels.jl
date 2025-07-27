@@ -9,7 +9,12 @@ const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
     tmp_sum2 = (uv +newvalue*v1)*2/ (unorm/newvalue + newvalue)
     return newvalue, taucurrent, tmp_sum2
 end
-
+@inline function correct_tau_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
+    newvalue=1
+    taucurrent=2
+    tmp_sum2=v1
+    return newvalue, taucurrent, tmp_sum2
+end
 
 @kernel cpu=false  inbounds=true unsafe_indices=false function QR_unsafe_kernel_2d!(input, tau) 
     i = @index(Local,Linear)
@@ -42,9 +47,7 @@ end
             end
             newvalue, taucurrent, tmp_sum2 = calc_tau_factor(cache[iter], sharedvalue[1], tmp_sum , tilecol[iter])
             if (abs(newvalue)<10floatmin(eltype(input)))
-                newvalue=1
-                taucurrent=2
-                tmp_sum2=v1
+                newvalue, taucurrent, tmp_sum2 = correct_tau_factor(cache[iter], sharedvalue[1], tmp_sum , tilecol[iter])
             end
 
             
@@ -118,9 +121,7 @@ end
             end
             newvalue, taucurrent, tmp_sum2 = calc_tau_factor(sharedvalue[2], tmpsumiter, tmp_sum , tileiter)
             if (abs(newvalue)<10floatmin(eltype(input)))
-                newvalue=1
-                taucurrent=2
-                tmp_sum2=v1
+                newvalue, taucurrent, tmp_sum2 = correct_tau_factor(sharedvalue[2], tmpsumiter, tmp_sum , tileiter)
             end
 
             tau_iter = i==iter ? taucurrent : tau_iter
@@ -207,9 +208,7 @@ if (TILESIZE<=64)
 
                     newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first[iter,iter], tmpsumiter, tmp_sum , tilecol_first[i,iter])
                     if (abs(newvalue)<10floatmin(eltype(input)))
-                        newvalue=1
-                        taucurrent=2
-                        tmp_sum2=v1
+                        newvalue, taucurrent, tmp_sum2 = correct_tau_factor(tilecol_first[iter,iter], tmpsumiter, tmp_sum , tilecol_first[i,iter])
                     end
 
                     if (k==1)
@@ -311,9 +310,7 @@ else
 
                     newvalue, taucurrent, tmp_sum2 = calc_tau_factor(tilecol_first_cache[iter], tmpsumiter, tmp_sum , tilecol_first_cache[i])
                     if (abs(newvalue)<10floatmin(eltype(input)))
-                        newvalue=1
-                        taucurrent=2
-                        tmp_sum2=v1
+                        newvalue, taucurrent, tmp_sum2 = correct_tau_factor(tilecol_first_cache[iter], tmpsumiter, tmp_sum , tilecol_first_cache[i])
                     end
 
                     if (k==1)
