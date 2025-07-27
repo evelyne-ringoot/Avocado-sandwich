@@ -37,7 +37,7 @@ for (i,size_i) in enumerate(sizes)
     @printf " %4d   %8.02e    %8.02f   \n" size_i errors[i] timings[i] 
 end  
 output[6,:].=round.(Int,timings).*10
-writedlm( "BRDresults"*string(elty)*"_"* string(TILESIZE)* "_"* string(TILESIZEMUL)* "_"* string(QRSPLIT)* "_small.csv",  output, ',')
+writedlm( "results"*string(elty)*"_"* string(TILESIZE)* "_"* string(TILESIZEMUL)* "_"* string(QRSPLIT)* "_small.csv",  output, ',')
 
 sizes=1024 .*[8,16,32]
 output=(zeros(Int,length(sizes),6))
@@ -51,8 +51,8 @@ try
     for (i,size_i) in enumerate(sizes)
         timing = benchmark_ms_large(size_i,mygesvd!)
         @printf " %4d   %8.02e    %8.02f   \n" size_i 0.0 timing
-        output[6,i].=round.(Int,timings).*10
-        writedlm( "BRDresults"*string(elty)*"_"* string(TILESIZE)* "_"* string(TILESIZEMUL)* "_"* string(QRSPLIT)* "_large.csv",  output, ',')
+        output[i,6].=round.(Int,timings).*10
+        writedlm( "results"*string(elty)*"_"* string(TILESIZE)* "_"* string(TILESIZEMUL)* "_"* string(QRSPLIT)* "_large.csv",  output, ',')
     end
 catch e
     println("did not run all sizes")
