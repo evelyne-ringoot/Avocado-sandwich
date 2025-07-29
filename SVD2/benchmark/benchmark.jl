@@ -40,11 +40,16 @@ const BANDOFFSET = 1
 BLAS.set_num_threads(Threads.nthreads())
 include("../src/KAfuncs.jl")
 include("../src/qr_kernels.jl")
-include("../src/brdgpu.jl")
+if (ARGS[3]!="QRB" && ARGS[3]=="MULQ")
+    include("../src/brdgpu.jl")
+    brd! = (length(ARGS)>=8 && ARGS[8]=="Y") ? brd2! : brd1!
+else
+    mygbbrd!(A) = nothing;
+end
 include("../src/tiledalgos.jl")
-include("../src/datacomms.jl")
+#include("../src/datacomms.jl")
 include("benchfuncs.jl")
-brd! = (length(ARGS)>=8 && ARGS[8]=="Y") ? brd2! : brd1!
+
 
  @printf "-- starting with parameters TILESIZE=%4d MULSIZE=%4d QRSPLIT%4d ELMENT=%s  BRD=%1d  \n" TILESIZE TILESIZEMUL QRSPLIT elty Int(length(ARGS)>=8 && ARGS[8]=="Y")
 
@@ -64,6 +69,16 @@ elseif (ARGS[3]=="CHECKERRORS")
 elseif (ARGS[3]=="SUBFUNC")
     include("benchmarksubfunctions.jl")
 elseif (ARGS[3]=="ALL")
+    functobench=mygesvd!
+    ERRCHECK=true
+    include("benchmarkallandlarge.jl")
+elseif (ARGS[3]=="QRB")
+    ERRCHECK=false
+    functobench=myblockdiag_qrcalc!
+    include("benchmarkallandlarge.jl")
+elseif (ARGS[3]=="MULQ")
+    ERRCHECK=false
+    functobench=myblockdiag_applyqr!
     include("benchmarkallandlarge.jl")
 else
     error("specify correct params")
