@@ -1,7 +1,7 @@
 using KernelAbstractions.Extras: @unroll
 
 const FACTORQR = Int(TILESIZE/QRSPLIT)
-const FACTORMUL = Int(TILESIZE/TILESIZEMUL)
+const FACTORMUL = (TILESIZEMUL>TILESIZE) ? 1 : Int(TILESIZE/TILESIZEMUL)
 
 @inline function calc_tau_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
     newvalue = u1 + (u1<0 ? -1 : 1)  *sqrt(u1*u1+unorm)
@@ -409,14 +409,18 @@ end
         @unroll for l in 1:TILESIZE
             tilecol[l+TILESIZE] = A[l, i+(g-1)*TILESIZEMUL] 
         end
-        @unroll for j in 0:FACTORMUL-1
-            tausmem[j*TILESIZEMUL+i]=tau[j*TILESIZEMUL+i]
-        end 
+        if (TILESIZEMUL>TILESIZE && i<=TILESIZE)
+            @unroll for j in 0:FACTORMUL-1
+                tausmem[j*TILESIZEMUL+i]=tau[j*TILESIZEMUL+i]
+            end 
+        end
         for k in 1:TILESIZE
             tmp_sum= zero(eltype(A))
-            @unroll for j in 0:FACTORMUL-1
-                Mcurr[j*TILESIZEMUL+i]=Min[j*TILESIZEMUL+i,k]
-            end 
+            if (TILESIZEMUL>TILESIZE && i<=TILESIZE)
+                @unroll for j in 0:FACTORMUL-1
+                    Mcurr[j*TILESIZEMUL+i]=Min[j*TILESIZEMUL+i,k]
+                end 
+            end
             @synchronize      
             @unroll for l in 1:TILESIZE
                 tmp_sum += Mcurr[l] * tilecol[l]
@@ -459,15 +463,19 @@ end
         @unroll for l in 1:TILESIZE
             tilecol[l] = B[currstartrow+l, i+(g-1)*TILESIZEMUL] 
         end
-        @unroll for j in 0:FACTORMUL-1
-            tausmem[j*TILESIZEMUL+i,currtile+1]=tau[j*TILESIZEMUL+i,currtile]
+        if (TILESIZEMUL>TILESIZE && i<=TILESIZE)
+            @unroll for j in 0:FACTORMUL-1
+                tausmem[j*TILESIZEMUL+i,currtile+1]=tau[j*TILESIZEMUL+i,currtile]
 
-        end 
+            end 
+        end
         for k in 1:TILESIZE
             tmp_sum= zero(eltype(A))
-            @unroll for j in 0:FACTORMUL-1
-                Mcurr[j*TILESIZEMUL+i]=Min[currstartrow+j*TILESIZEMUL+i,k]
-            end 
+            if (TILESIZEMUL>TILESIZE && i<=TILESIZE)
+                @unroll for j in 0:FACTORMUL-1
+                    Mcurr[j*TILESIZEMUL+i]=Min[currstartrow+j*TILESIZEMUL+i,k]
+                end 
+            end
             @synchronize      
             @unroll for l in 1:TILESIZE
                 tmp_sum += Mcurr[l] * tilecol[l]
