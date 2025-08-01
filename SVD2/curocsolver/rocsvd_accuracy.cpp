@@ -87,8 +87,8 @@ void run_config( BenchmarkConfig const &config) {
     HIP_CHECK(hipMalloc(&d_info, sizeof(int)));
 
      HIP_CHECK(hipMemcpy(
-            a_gpu,
-            a.data(),
+            d_A,
+            inputdata.data(),
             size_in*size_in * sizeof(float),
             hipMemcpyHostToDevice));
 
