@@ -1,4 +1,3 @@
-#=
 
 function cusvdwithcopy(a)
     agpu=KernelAbstractions.allocate(backend,eltype(a),size(a,1),size(a,2))
@@ -69,7 +68,6 @@ println(" ------  --------  ----------  ---------- ");
 for (i,size_i) in enumerate(sizes)
     @printf " %4d   %8.02e    %8.02f  %8.02f  \n" size_i errors[2,i] timings[4,i] timings[3,i]
 end  
-=#
 
 #=
 @inline backendstream() = CUDA.stream()

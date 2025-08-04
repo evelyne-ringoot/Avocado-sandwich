@@ -1,8 +1,8 @@
 using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dates, DelimitedFiles
 
-include("parseinputargs.jl")
+include("helpfuncs/parseinputargs.jl")
 include("../src/brdgpunew.jl")
-include("benchfuncs.jl")
+include("helpfuncs/benchfuncs.jl")
 
 print("starting code : ")
 println(Dates.format(now(), "HH:MM:SS")  )

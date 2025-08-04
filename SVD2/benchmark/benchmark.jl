@@ -46,9 +46,9 @@ if (ARGS[3]!="QRB" && ARGS[3]=="MULQ")
 else
     mygbbrd!(A) = nothing;
 end
-include("../src/tiledalgos.jl")
+include("../src/tiledalgos_gpu.jl")
 #include("../src/datacomms.jl")
-include("benchfuncs.jl")
+include("helpfuncs/benchfuncs.jl")
 
 
  @printf "-- starting with parameters TILESIZE=%4d MULSIZE=%4d QRSPLIT%4d ELMENT=%s  BRD=%1d  \n" TILESIZE TILESIZEMUL QRSPLIT elty Int(length(ARGS)>=8 && ARGS[8]=="Y")
@@ -56,30 +56,34 @@ include("benchfuncs.jl")
 
 if (ARGS[3]=="SMALL")
     sizes=[64,128,256,512,1024,2048, 4096]
-    include("benchmarkall.jl")
+    include("benchfiles/benchmarkall.jl")
 elseif (ARGS[3]=="LARGE")
     sizes=8192 .*[1,2,4,8]
-    include("benchmarklarge.jl")
+    include("benchfiles/benchmarklarge.jl")
 elseif (ARGS[3]=="SPECIFY")
     sizes=[parse(Int,ARGS[4])]
-    include("benchmarklarge.jl")
+    include("benchfiles/benchmarklarge.jl")
 elseif (ARGS[3]=="CHECKERRORS")
     sizes=[64,128,256,512,1024,2048,2048*2,1024*8,1024*16,1024*32]
-    include("benchmarkerrors.jl")
+    include("benchfiles/benchmarkerrors.jl")
 elseif (ARGS[3]=="SUBFUNC")
-    include("benchmarksubfunctions.jl")
+    include("benchfiles/benchmarksubfunctions.jl")
 elseif (ARGS[3]=="ALL")
     functobench=mygesvd!
     ERRCHECK=true
-    include("benchmarkallandlarge.jl")
+    include("benchfiles/benchmarkallandlarge.jl")
 elseif (ARGS[3]=="QRB")
     ERRCHECK=false
     functobench=myblockdiag_qrcalc!
-    include("benchmarkallandlarge.jl")
+    include("benchfiles/benchmarkallandlarge.jl")
 elseif (ARGS[3]=="MULQ")
     ERRCHECK=false
     functobench=myblockdiag_applyqr!
-    include("benchmarkallandlarge.jl")
+    include("benchfiles/benchmarkallandlarge.jl")
+elseif (ARGS[3]=="CUDA")
+    ERRCHECK=false
+    functobench=myblockdiag_applyqr!
+    include("benchfiles/benchmarkcusol.jl")
 else
     error("specify correct params")
 end

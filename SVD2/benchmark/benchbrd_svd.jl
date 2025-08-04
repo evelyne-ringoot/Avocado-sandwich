@@ -1,12 +1,12 @@
 using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dates, DelimitedFiles, RandomMatrices
 
-include("parseinputargs.jl")
+include("helpfuncs/parseinputargs.jl")
 include("../src/brdgpunew.jl")
 include("benchfuncs.jl")
 BLAS.set_num_threads(Threads.nthreads())
 include("../src/KAfuncs.jl")
 include("../src/qr_kernels.jl")
-include("../src/tiledalgos.jl")
+include("../src/tiledalgos_gpu.jl")
 mygbbrd!(A)=mygbbrd_packed!(A)
 vecty=typeof(KernelAbstractions.zeros(backend,elty,2))
 svdtestscaling(n) = (11:-10/(n-1):1)
