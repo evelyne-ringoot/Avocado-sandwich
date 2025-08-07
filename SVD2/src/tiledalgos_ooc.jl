@@ -1,6 +1,3 @@
-#TODO
-#non-square and non-power of two matrices, and non-multiples of tilesize
-#naming conventions
 
 
 function LargeTiledMatrix(input::AbstractMatrix{T}, backend::Backend, tilesinmem::Int) where {T}
@@ -112,7 +109,6 @@ function getlast!(A::LargeTiledMatrix, k::Int, prevLQ::Bool, begincol::Int,endco
     (k<A.nb_tiles) &&  get_tilerow(A ,k,A.nb_tiles , 3, colbegin=begincol,endcol=endcol,colinmem=colinmem )
     get_tilerow(A, k, k+Int(prevLQ),  1, colbegin=begincol,endcol=endcol,colinmem=colinmem)
 end
-
 
 
 

@@ -1,6 +1,3 @@
-#TODO
-#non-square and non-power of two matrices, and non-multiples of tilesize
-#naming conventions
 
 struct LargeTiledMatrix{T} <: AbstractMatrix{T}
     parent::Union{Adjoint{<:AbstractMatrix{T}},AbstractMatrix{T}}
