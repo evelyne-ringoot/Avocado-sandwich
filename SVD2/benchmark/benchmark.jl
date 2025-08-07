@@ -41,7 +41,7 @@ BLAS.set_num_threads(Threads.nthreads())
 include("../src/KAfuncs.jl")
 include("../src/geqrt_tsqrt.jl")
 include("../src/unmqr_tsmqr.jl")
-if (ARGS[3]!="QRB" && ARGS[3]=="MULQ")
+if (ARGS[3]!="QRB")
     include("../src/brdgpu.jl")
     brd! = (length(ARGS)>=8 && ARGS[8]=="Y") ? brd2! : brd1!
 else

@@ -1,6 +1,6 @@
 using KernelAbstractions.Extras: @unroll
 
-const FACTORMUL = (TILESIZEMUL>TILESIZE) ? 1 : Int(TILESIZE/TILESIZEMUL)
+const FACTORMUL = ((TILESIZEMUL>TILESIZE) ? 1 : Int(TILESIZE/TILESIZEMUL))
 
 
 
@@ -52,14 +52,14 @@ end
         @unroll for l in 1:TILESIZE
             tilecol[l+TILESIZE] = A[l, i+(g-1)*TILESIZEMUL] 
         end
-        if (TILESIZEMUL>TILESIZE && i<=TILESIZE)
+        if (TILESIZEMUL<=TILESIZE || i<=TILESIZE)
             @unroll for j in 0:FACTORMUL-1
                 tausmem[j*TILESIZEMUL+i]=tau[j*TILESIZEMUL+i]
             end 
         end
         for k in 1:TILESIZE
             tmp_sum= zero(eltype(A))
-            if (TILESIZEMUL>TILESIZE && i<=TILESIZE)
+            if (TILESIZEMUL<=TILESIZE || i<=TILESIZE)
                 @unroll for j in 0:FACTORMUL-1
                     Mcurr[j*TILESIZEMUL+i]=Min[j*TILESIZEMUL+i,k]
                 end 
@@ -106,7 +106,7 @@ end
         @unroll for l in 1:TILESIZE
             tilecol[l] = B[currstartrow+l, i+(g-1)*TILESIZEMUL] 
         end
-        if (TILESIZEMUL>TILESIZE && i<=TILESIZE)
+        if (TILESIZEMUL<=TILESIZE || i<=TILESIZE)
             @unroll for j in 0:FACTORMUL-1
                 tausmem[j*TILESIZEMUL+i,currtile+1]=tau[j*TILESIZEMUL+i,currtile]
 
@@ -114,7 +114,7 @@ end
         end
         for k in 1:TILESIZE
             tmp_sum= zero(eltype(A))
-            if (TILESIZEMUL>TILESIZE && i<=TILESIZE)
+            if (TILESIZEMUL<=TILESIZE || i<=TILESIZE)
                 @unroll for j in 0:FACTORMUL-1
                     Mcurr[j*TILESIZEMUL+i]=Min[currstartrow+j*TILESIZEMUL+i,k]
                 end 
