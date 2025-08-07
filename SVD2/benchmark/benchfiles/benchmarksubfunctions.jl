@@ -15,9 +15,6 @@ for (j,f) in enumerate(functionstobench)
     end
 end
 
-println( " size   qrcalc(ms)   qrapply(ms)   svd(ms)   unfused(ms)  band(ms)   bidiag(ms)");
-println(" ------  --------    ----------  ----------  ----------    ----------   ----------     ");
-
 if ARGS[4]!="LARGE"
     for (j,f) in enumerate(functionstobench)
         println( "run "*string(f))
@@ -25,11 +22,16 @@ if ARGS[4]!="LARGE"
             timings[j,i] = min( benchmark_ms(size_i, f), timings[j,i])
         end
     end
+end
 
+println( " size   qrcalc(ms)   qrapply(ms)   svd(ms)   unfused(ms)    band(ms)    bidiag(ms)");
+println(" ------  --------    ----------  ----------  ----------    ----------   ----------     ");
+
+if ARGS[4]!="LARGE"
     for (i,size_i) in enumerate(sizes)
         @printf " %4d   " size_i
         for (j,f) in enumerate(functionstobench)
-            @printf "%8.02f  "  timings[j,i] 
+            @printf "%8.02f   "  timings[j,i] 
         end
         @printf "\n" 
     end  
@@ -47,7 +49,7 @@ try
         @printf " %4d   " size_i
         for (j,f) in enumerate(functionstobench)
             timing = benchmark_ms_large(size_i,f)
-            @printf "%8.02f  "  timing
+            @printf "%8.02f   "  timing
         end
         @printf "\n" 
         flush(stdout)
