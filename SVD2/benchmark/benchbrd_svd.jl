@@ -2,10 +2,11 @@ using KernelAbstractions,GPUArrays, Random, LinearAlgebra, Printf, ArgParse, Dat
 
 include("helpfuncs/parseinputargs.jl")
 include("../src/brdgpunew.jl")
-include("benchfuncs.jl")
+include("helpfuncs/benchfuncs.jl")
 BLAS.set_num_threads(Threads.nthreads())
 include("../src/KAfuncs.jl")
-include("../src/qr_kernels.jl")
+include("../src/geqrt_tsqrt.jl")
+include("../src/unmqr_tsmqr.jl")
 include("../src/tiledalgos_gpu.jl")
 mygbbrd!(A)=mygbbrd_packed!(A)
 vecty=typeof(KernelAbstractions.zeros(backend,elty,2))
