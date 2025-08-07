@@ -9,9 +9,9 @@ const FACTORQR = Int(TILESIZE/QRSPLIT)
     return newvalue, taucurrent, tmp_sum2
 end
 @inline function correct_tau_factor(u1::T, unorm::T, uv::T, v1::T) where {T<:Number}
-    newvalue=1
+    newvalue=10*eps(T)
     taucurrent=2
-    tmp_sum2=v1
+    tmp_sum2=(uv/newvalue +v1)*2
     return newvalue, taucurrent, tmp_sum2
 end
 
